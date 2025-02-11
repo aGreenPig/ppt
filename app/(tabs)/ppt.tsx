@@ -7,8 +7,10 @@ import { ThemedView } from '@/components/ThemedView';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 
 export default function FileUploadScreen() {
-  const [fileUri, setFileUri] = useState<string | null | undefined>(null);;
-  const [fileType, setFileType] = useState<string | null | undefined>(null);;
+  const [fileUri, setFileUri] = useState<string>("");
+  const [fileType, setFileType] = useState<string>("");
+  const [fileBlob, setFileBlob] = useState<Blob | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
 
   const handleFileUpload = async () => {
     try {
@@ -16,27 +18,43 @@ export default function FileUploadScreen() {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.pdf,.ppt,.pptx';
-        input.onchange = (event) => {
+        input.onchange = async (event: any) => {
           const file = event.target.files[0];
           if (file) {
-            const fileUrl = URL.createObjectURL(file);
-            setFileUri(fileUrl);
-            setFileType(file.type);
+            const fileBlob = file;
+            const fileName = file.name;
+            const fileUri = URL.createObjectURL(file);
+
+            setFileBlob(fileBlob);
+            setFileName(fileName);
+            setFileUri(fileUri);
+
+            console.log('File selected:', fileName);
           }
         };
         input.click();
       } else {
         const result = await DocumentPicker.getDocumentAsync({
-          type: ['application/pdf', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+          type: [
+            'application/pdf',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          ],
           copyToCacheDirectory: true,
         });
 
         if (result.canceled) {
-            Alert.alert('File upload cancelled');
-        } else {
-            setFileUri(result.assets[0].uri);
-            setFileType(result.assets[0].mimeType);
-            console.log('File selected:', result);
+          Alert.alert('File upload cancelled');
+        } else if (result.assets && result.assets[0]) {
+          const fileUri = result.assets[0].uri;
+          const fileName = result.assets[0].name || fileUri.split('/').pop();
+          const fileBlob = await fetch(fileUri).then((res) => res.blob());
+
+          setFileBlob(fileBlob);
+          setFileName(fileName);
+          setFileUri(fileUri);
+
+          console.log('File selected:', fileName);
         }
       }
     } catch (error) {
@@ -46,27 +64,26 @@ export default function FileUploadScreen() {
   };
 
   const handleUploadToBackend = async () => {
-    if (!fileUri) {
+    if (!fileBlob || !fileName) {
       Alert.alert('No file selected', 'Please upload a file first.');
       return;
     }
 
     try {
-      const response = await fetch('https://mybackend.com/myapi', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileUri,
-          fileType,
-        }),
+      console.log('fileBlob:', fileBlob);
+      console.log('fileName:', fileName);
+
+      const formData = new FormData(); 
+      formData.append('file', fileBlob);
+      const uploadResponse = await fetch('http://127.0.0.1:5000/upload', {
+          method: 'POST',
+          body: formData,
       });
 
-      if (response.ok) {
-        Alert.alert('Success', 'File reference sent to backend successfully!');
+      if (uploadResponse.ok) {
+        Alert.alert('Success', 'File uploaded successfully!');
       } else {
-        Alert.alert('Error', 'Failed to send file to backend.');
+        Alert.alert('Error', 'Failed to upload file to backend.');
       }
     } catch (error) {
       console.error('Error sending file to backend:', error);
@@ -88,13 +105,12 @@ export default function FileUploadScreen() {
             {fileType === 'application/pdf' ? (
               <WebView source={{ uri: fileUri }} style={styles.webview} />
             ) : (
-              <WebView source={{ uri: "https://docs.google.com/viewer?url="+fileUri }} style={styles.webview} />
-              //<ThemedText>{`File selected: ${fileUri.split('/').pop()}`}</ThemedText>
+              <WebView source={{ uri: `https://docs.google.com/viewer?url=${fileUri}` }} style={styles.webview} />
             )}
           </ThemedView>
         )}
 
-        {fileUri && (
+        {fileBlob && (
           <Button title="Send File to Backend" onPress={handleUploadToBackend} />
         )}
       </ThemedView>
