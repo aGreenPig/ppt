@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Image, StyleSheet, Platform, Alert, View } from 'react-native';
+import { Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
@@ -28,6 +29,17 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
+interface PerImage {
+  llm: string;
+  path: string;
+}
+
+interface FileData {
+  id: string;
+  summary: string;
+  per_image: PerImage[];
+}
+
 export default function HomeScreen() {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<String | null>(null);
@@ -42,6 +54,9 @@ export default function HomeScreen() {
     responseType: 'id_token',
     scopes: ['profile', 'email'],
   });
+
+  const [files, setFiles] = useState<FileData[]>([]);
+  const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
 
   // Load tokens when the component mounts
   useEffect(() => {
@@ -176,6 +191,34 @@ export default function HomeScreen() {
     }
   };
 
+  // --- NEW: get_all_files API call with new response format ---
+  const getAllFiles = async () => {
+    if (!accessToken) {
+      Alert.alert('Not authenticated', 'Please sign in first.');
+      return;
+    }
+    try {
+      const response = await fetch('http://127.0.0.1:5000/get_all_files', {
+        method: 'POST', // Adjust the method if needed.
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json();
+      console.log('get_all_files response: ', data);
+      if (data.data.files) {
+        setFiles(data.data.files);
+        if (data.data.files.length > 0) {
+          setSelectedFile(data.data.files[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching all files:', error);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
@@ -189,15 +232,17 @@ export default function HomeScreen() {
   };
 
   const handleSignOut = async () => {
-      auth.signOut().then(() => {
-        setAccessToken(null)
-        setRefreshToken(null)
-        setUser(null)
-        setEmail(null)
-      }).catch((error) => {
-        console.log(error)
-      });
+    auth.signOut().then(() => {
+      setAccessToken(null)
+      setRefreshToken(null)
+      setUser(null)
+      setEmail(null)
+    }).catch((error) => {
+      console.log(error)
+    });
   };
+
+  const deviceWidth = Dimensions.get('window').width;
 
   return (
     <ParallaxScrollView
@@ -253,6 +298,54 @@ export default function HomeScreen() {
         <Button title="Sign in with Google" disabled={!request} onPress={handleSignIn} />
       )}
       <Button title="sampleCall" disabled={!request} onPress={sampleCall} />
+
+
+      {/* --- NEW SECTION: Files & Slideshow --- */}
+      <View style={styles.fileSection}>
+        <Button title="Load Files" onPress={getAllFiles} />
+        {files.length > 0 && (
+          <>
+            <ThemedText style={styles.sectionTitle}>Select a File</ThemedText>
+            <Picker
+              selectedValue={selectedFile?.id}
+              onValueChange={(itemValue) => {
+                const file = files.find((f) => f.id === itemValue);
+                setSelectedFile(file || null);
+              }}
+            >
+              {files.map((file) => (
+                <Picker.Item
+                  key={file.id}
+                  label={`File ${file.id}`} // You can customize the label (e.g. file.summary)
+                  value={file.id}
+                />
+              ))}
+            </Picker>
+          </>
+        )}
+        {selectedFile && selectedFile.per_image && selectedFile.per_image.length > 0 && (
+          <>
+            <ThemedText style={styles.sectionTitle}>Slideshow</ThemedText>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={[styles.carousel, { width: deviceWidth }]}
+            >
+              {selectedFile.per_image.map((item, index) => (
+                <View key={index} style={[styles.carouselItem, { width: deviceWidth }]}>
+                  <Image
+                    source={{ uri: item.path }}
+                    style={styles.carouselImage}
+                    resizeMode="contain"
+                  />
+                  <ThemedText style={styles.captionText}>{item.llm}</ThemedText>
+                </View>
+              ))}
+            </ScrollView>
+          </>
+        )}
+      </View>
     </ParallaxScrollView>
   );
 }
@@ -273,5 +366,34 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     position: 'absolute',
+  },
+  // --- NEW STYLES ---
+  fileSection: {
+    marginVertical: 16,
+    paddingHorizontal: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    marginVertical: 8,
+    fontWeight: '600',
+  },
+  carousel: {
+    marginTop: 16,
+    height: 300,
+  },
+  carouselItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  carouselImage: {
+    width: '100%',
+    height: 250,
+    borderRadius: 8,
+  },
+  captionText: {
+    marginTop: 8,
+    fontSize: 16,
+    textAlign: 'center',
   },
 });

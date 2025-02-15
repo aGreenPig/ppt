@@ -73,11 +73,11 @@ export default function FileUploadScreen() {
       console.log('fileBlob:', fileBlob);
       console.log('fileName:', fileName);
 
-      const formData = new FormData(); 
+      const formData = new FormData();
       formData.append('file', fileBlob);
       const uploadResponse = await fetch('http://127.0.0.1:5000/upload', {
-          method: 'POST',
-          body: formData,
+        method: 'POST',
+        body: formData,
       });
 
       if (uploadResponse.ok) {
