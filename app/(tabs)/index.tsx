@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions } from 'react-native';
+import { Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
-import { ResponseType } from 'expo-auth-session';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithCredential, onAuthStateChanged, User } from "firebase/auth";
+import * as DocumentPicker from 'expo-document-picker';
+import { getAuth, onAuthStateChanged, User } from "firebase/auth";
+import * as Global from './global';
 
 import { HelloWave } from '@/components/HelloWave';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
@@ -16,17 +17,7 @@ import { ThemedView } from '@/components/ThemedView';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const firebaseConfig = {
-  apiKey: "AIzaSyA_Duynbh7juMmScLejlRKhndV59BG51S4",
-  authDomain: "pptppt-f2257.firebaseapp.com",
-  projectId: "pptppt-f2257",
-  storageBucket: "pptppt-f2257.firebasestorage.app",
-  messagingSenderId: "295151000635",
-  appId: "1:295151000635:web:93f665f8569ac53383101e",
-  measurementId: "G-WD4Z6KY627"
-};
-
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(Global.firebaseConfig);
 const auth = getAuth(app);
 
 interface PerImage {
@@ -41,27 +32,53 @@ interface FileData {
 }
 
 export default function HomeScreen() {
-  const [user, setUser] = useState<User | null>(null);
+  // access related
   const [accessToken, setAccessToken] = useState<String | null>(null);
   const [refreshToken, setRefreshToken] = useState<String | null>(null);
   const [email, setEmail] = useState<String | null>(null);
   const [idToken, setIdToken] = useState<String | null>(null);
+
   const [request, response, promptAsync] = Google.useAuthRequest({
-    // expoClientId: Platform.OS === 'web' ? '295151000635-9fvj1qebvar82sgp04tn3uksvsttevs3.apps.googleusercontent.com' : 'YOUR_ANDROID_CLIENT_ID', // Replace with your Expo client IDs
-    //iosClientId: 'YOUR_IOS_CLIENT_ID', // Replace with your iOS client ID
-    //androidClientId: 'YOUR_ANDROID_CLIENT_ID', // Replace with your Android client ID
-    webClientId: '295151000635-9fvj1qebvar82sgp04tn3uksvsttevs3.apps.googleusercontent.com', // Replace with your web client ID
+    iosClientId: Global.iosClientId,
+    //androidClientId: androidClientId,
+    webClientId: Global.webClientId,
     responseType: 'id_token',
     scopes: ['profile', 'email'],
   });
 
-  const [files, setFiles] = useState<FileData[]>([]);
+  // all files
+  const [allFiles, setAllFiles] = useState<FileData[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
+
+  // new file
+  const [fileType, setFileType] = useState<string>("");
+  const [fileBlob, setFileBlob] = useState<Blob | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
 
   // Load tokens when the component mounts
   useEffect(() => {
     loadTokens();
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    });
+    return unsubscribe; // Unsubscribe on unmount
+  }, []);
+
+  const handleSignIn = async () => {
+    promptAsync();
+  };
+
+  const handleSignOut = async () => {
+    auth.signOut().then(() => {
+      setAccessToken(null)
+      setRefreshToken(null)
+      setEmail(null)
+    }).catch((error) => {
+      console.log(error)
+    });
+  };
 
   // Watch for authentication responses.
   useEffect(() => {
@@ -78,20 +95,6 @@ export default function HomeScreen() {
     }
   }, [response]);
 
-  // Fetch basic user information from Google’s UserInfo API.
-  const fetchUserInfo = async (token: string) => {
-    try {
-      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const userData = await res.json();
-      setUser(userData);
-      console.log("userData: ", userData)
-    } catch (error) {
-      console.error('Error fetching user info:', error);
-    }
-  };
-
   const verifyIdToken = async (idToken: string) => {
     console.log("idToken:", idToken)
     if (!idToken) {
@@ -99,7 +102,7 @@ export default function HomeScreen() {
       return;
     }
     try {
-      const response = await fetch('http://127.0.0.1:5000/verify_id_token', {
+      const response = await fetch(Global.backendDomain+'/verify_id_token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -174,7 +177,7 @@ export default function HomeScreen() {
       return;
     }
     try {
-      const response = await fetch('http://127.0.0.1:5000/samplecall', {
+      const response = await fetch(Global.backendDomain+'/samplecall', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -198,7 +201,7 @@ export default function HomeScreen() {
       return;
     }
     try {
-      const response = await fetch('http://127.0.0.1:5000/get_all_files', {
+      const response = await fetch(Global.backendDomain+'/get_all_files', {
         method: 'POST', // Adjust the method if needed.
         headers: {
           'Content-Type': 'application/json',
@@ -209,7 +212,7 @@ export default function HomeScreen() {
       const data = await response.json();
       console.log('get_all_files response: ', data);
       if (data.data.files) {
-        setFiles(data.data.files);
+        setAllFiles(data.data.files);
         if (data.data.files.length > 0) {
           setSelectedFile(data.data.files[0]);
         }
@@ -219,27 +222,97 @@ export default function HomeScreen() {
     }
   };
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-    });
+  const handleFileUpload = async () => {
+    try {
+      if (Platform.OS === 'web') {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.pdf,.ppt,.pptx';
+        input.onchange = async (event: any) => {
+          const file = event.target.files[0];
+          if (file) {
+            const fileBlob = file;
+            const fileName = file.name;
+            const fileUri = URL.createObjectURL(file);
+            setFileBlob(fileBlob);
+            setFileName(fileName);
+            console.log('File selected:', fileName);
+          }
+        };
+        input.click();
+      } else {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: [
+            'application/pdf',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          ],
+          copyToCacheDirectory: true,
+        });
 
-    return unsubscribe; // Unsubscribe on unmount
-  }, []);
-
-  const handleSignIn = async () => {
-    promptAsync();
+        if (result.canceled) {
+          Alert.alert('File upload cancelled');
+        } else if (result.assets && result.assets[0]) {
+          const fileUri = result.assets[0].uri;
+          const fileName = result.assets[0].name || fileUri.split('/').pop();
+          const fileBlob = await fetch(fileUri).then((res) => res.blob());
+          setFileBlob(fileBlob);
+          setFileName(fileName);
+          console.log('File selected:', fileName);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking file:', error);
+      Alert.alert('Error', 'Could not upload the file. Please try again.');
+    }
   };
 
-  const handleSignOut = async () => {
-    auth.signOut().then(() => {
-      setAccessToken(null)
-      setRefreshToken(null)
-      setUser(null)
-      setEmail(null)
-    }).catch((error) => {
-      console.log(error)
-    });
+  const handleUploadToBackend = async () => {
+    console.log(123)
+    if (!fileBlob || !fileName) {
+      Alert.alert('No file selected', 'Please upload a file first.');
+      return;
+    }
+
+    try {
+      console.log('fileBlob:', fileBlob);
+      console.log('fileName:', fileName);
+
+      const formData = new FormData();
+      formData.append('file', fileBlob);
+      formData.append('metadata', JSON.stringify({ subject: 'Math', course: 'Algebra' }));
+      const response = await fetch(Global.backendDomain+'/upload_file', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        Alert.alert('Success', 'File uploaded successfully!');
+        const data = await response.json();
+        console.log('upload_file response: ', data);
+        if (data.data.files) {
+          setAllFiles(data.data.files);
+          if (data.data.files.length > 0) {
+            setSelectedFile(data.data.files[0]);
+          }
+        }
+
+      } else {
+        Alert.alert('Error', 'Failed to upload file to backend.');
+      }
+    } catch (error) {
+      console.error('Error sending file to backend:', error);
+      Alert.alert('Error', 'An error occurred while uploading the file.');
+    }
+  };
+
+  const handleFileUploadAndBackend = async () => {
+    // First, pick the file.
+    await handleFileUpload();
+    await handleUploadToBackend();
   };
 
   const deviceWidth = Dimensions.get('window').width;
@@ -299,21 +372,39 @@ export default function HomeScreen() {
       )}
       <Button title="sampleCall" disabled={!request} onPress={sampleCall} />
 
+      {/* --- FILE UPLOAD SECTION --- */}
+      <View style={styles.uploadSection}>
+        <ThemedText style={styles.uploadTitle}>File Upload</ThemedText>
+        <TouchableOpacity style={styles.selectFileButton} onPress={handleFileUpload}>
+          <ThemedText style={styles.selectFileButtonText}>
+            {fileName ? 'Change File' : 'Select File'}
+          </ThemedText>
+        </TouchableOpacity>
+        {fileName && (
+          <View style={styles.selectedFileContainer}>
+            <ThemedText style={styles.selectedFileName}>Selected: {fileName}</ThemedText>
+            <TouchableOpacity style={styles.uploadButton} onPress={handleUploadToBackend}>
+              <ThemedText style={styles.uploadButtonText}>Upload File</ThemedText>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
 
       {/* --- NEW SECTION: Files & Slideshow --- */}
       <View style={styles.fileSection}>
         <Button title="Load Files" onPress={getAllFiles} />
-        {files.length > 0 && (
+        {allFiles.length > 0 && (
           <>
             <ThemedText style={styles.sectionTitle}>Select a File</ThemedText>
             <Picker
               selectedValue={selectedFile?.id}
               onValueChange={(itemValue) => {
-                const file = files.find((f) => f.id === itemValue);
+                const file = allFiles.find((f) => f.id === itemValue);
                 setSelectedFile(file || null);
               }}
             >
-              {files.map((file) => (
+              {allFiles.map((file) => (
                 <Picker.Item
                   key={file.id}
                   label={`File ${file.id}`} // You can customize the label (e.g. file.summary)
@@ -323,6 +414,7 @@ export default function HomeScreen() {
             </Picker>
           </>
         )}
+
         {selectedFile && selectedFile.per_image && selectedFile.per_image.length > 0 && (
           <>
             <ThemedText style={styles.sectionTitle}>Slideshow</ThemedText>
@@ -367,7 +459,53 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
   },
-  // --- NEW STYLES ---
+  // --- FILE UPLOAD STYLES ---
+  uploadSection: {
+    marginVertical: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#f0f4f7',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  uploadTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  selectFileButton: {
+    backgroundColor: '#4a90e2',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 5,
+    alignItems: 'center',
+  },
+  selectFileButtonText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  selectedFileContainer: {
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  selectedFileName: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  uploadButton: {
+    backgroundColor: '#34a853',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 5,
+  },
+  uploadButtonText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  // --- FILES & SLIDESHOW STYLES ---
   fileSection: {
     marginVertical: 16,
     paddingHorizontal: 16,
