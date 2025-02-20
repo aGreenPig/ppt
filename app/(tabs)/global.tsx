@@ -1,6 +1,3 @@
-import {Platform} from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 export const firebaseConfig = {
     apiKey: "AIzaSyA_Duynbh7juMmScLejlRKhndV59BG51S4",
     authDomain: "pptppt-f2257.firebaseapp.com",
@@ -18,4 +15,8 @@ export const webClientId = '295151000635-9fvj1qebvar82sgp04tn3uksvsttevs3.apps.g
 export const androidClientId = 'TBD'
 
 // http://127.0.0.1:5000
+// https://gb9i2r5dmg.execute-api.us-east-1.amazonaws.com/dev
+// https://vwvflsztz4.execute-api.us-east-1.amazonaws.com/prod
 export const backendDomain = __DEV__ ? 'https://gb9i2r5dmg.execute-api.us-east-1.amazonaws.com/dev' : 'https://gb9i2r5dmg.execute-api.us-east-1.amazonaws.com/dev'
+
+export const authRedirectUrl = __DEV__ ? 'http://localhost:8081/' : "https://agreenpig.github.io/ppt/"

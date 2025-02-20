@@ -4,7 +4,6 @@ import { Picker } from '@react-native-picker/picker';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
-import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import * as DocumentPicker from 'expo-document-picker';
 import { getAuth, onAuthStateChanged, User } from "firebase/auth";
@@ -44,6 +43,7 @@ export default function HomeScreen() {
     webClientId: Global.webClientId,
     responseType: 'id_token',
     scopes: ['profile', 'email'],
+    redirectUri: Global.authRedirectUrl,
   });
 
   // all files
@@ -240,7 +240,7 @@ export default function HomeScreen() {
           }
         };
         input.click();
-      } else {
+      } else { // mobile
         const result = await DocumentPicker.getDocumentAsync({
           type: [
             'application/pdf',
@@ -257,7 +257,9 @@ export default function HomeScreen() {
           const fileName = result.assets[0].name || fileUri.split('/').pop();
           const fileBlob = await fetch(fileUri).then((res) => res.blob());
           setFileBlob(fileBlob);
-          setFileName(fileName);
+          if (fileName) {
+            setFileName(fileName);
+          }
           console.log('File selected:', fileName);
         }
       }
