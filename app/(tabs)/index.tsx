@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
+import { Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions, TouchableOpacity, TextInput } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,6 +7,7 @@ import { initializeApp } from "firebase/app";
 import * as WebBrowser from 'expo-web-browser';
 import * as DocumentPicker from 'expo-document-picker';
 import { getAuth, onAuthStateChanged, User } from "firebase/auth";
+import { loadStripe } from '@stripe/stripe-js';
 import * as Global from './global';
 
 import { HelloWave } from '@/components/HelloWave';
@@ -36,6 +37,7 @@ export default function HomeScreen() {
   const [refreshToken, setRefreshToken] = useState<String | null>(null);
   const [email, setEmail] = useState<String | null>(null);
   const [idToken, setIdToken] = useState<String | null>(null);
+  const [userId, setUserId] = useState<String | null>(null);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     iosClientId: Global.iosClientId,
@@ -49,11 +51,14 @@ export default function HomeScreen() {
   // all files
   const [allFiles, setAllFiles] = useState<FileData[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   // new file
   const [fileType, setFileType] = useState<string>("");
   const [fileBlob, setFileBlob] = useState<Blob | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [courseName, setCourseName] = useState('');
+  const [grade, setGrade] = useState('');
 
   // Load tokens when the component mounts
   useEffect(() => {
@@ -82,6 +87,7 @@ export default function HomeScreen() {
 
   // Watch for authentication responses.
   useEffect(() => {
+    console.log("Global.authRedirectUrl: ", Global.authRedirectUrl)
     console.log("authentication response: ", response)
     if (response?.type === 'success') {
       const { authentication, params } = response;
@@ -117,26 +123,29 @@ export default function HomeScreen() {
       if (data.access_token && data.refresh_token) {
         setAccessToken(data.access_token);
         setRefreshToken(data.refresh_token);
-        setEmail(data.email)
-        saveTokens(data.access_token, data.refresh_token, data.email);
+        setUserId(data.user_id);
+        setEmail(data.email);
+        saveTokens(data.access_token, data.refresh_token, data.email, data.userId);
       }
     } catch (error) {
       console.error('Error verify_id_token: ', error);
     }
   };
 
-  const saveTokens = async (access: string, refresh: string, email: string) => {
+  const saveTokens = async (access: string, refresh: string, email: string, userId: string) => {
     if (Platform.OS === 'web') {
       // On web, use localStorage
       localStorage.setItem('accessToken', access);
       localStorage.setItem('refreshToken', refresh);
       localStorage.setItem('email', email);
+      localStorage.setItem('userId', userId);
     } else {
       // On mobile, use AsyncStorage
       try {
         await AsyncStorage.setItem('accessToken', access);
         await AsyncStorage.setItem('refreshToken', refresh);
         await AsyncStorage.setItem('email', email);
+        localStorage.setItem('userId', userId);
       } catch (error) {
         console.error('Error saving tokens', error);
       }
@@ -149,27 +158,30 @@ export default function HomeScreen() {
       const storedAccess = localStorage.getItem('accessToken');
       const storedRefresh = localStorage.getItem('refreshToken');
       const storedEmail = localStorage.getItem('email');
+      const userId = localStorage.getItem('userId');
       if (storedAccess && storedRefresh && storedEmail) {
         setAccessToken(storedAccess);
         setRefreshToken(storedRefresh);
         setEmail(storedEmail);
+        setUserId(userId);
       }
     } else {
       try {
         const storedAccess = await AsyncStorage.getItem('accessToken');
         const storedRefresh = await AsyncStorage.getItem('refreshToken');
         const storedEmail = await AsyncStorage.getItem('email');
+        const userId = await AsyncStorage.getItem('userId');
         if (storedAccess && storedRefresh && storedEmail) {
           setAccessToken(storedAccess);
           setRefreshToken(storedRefresh);
           setEmail(storedEmail);
+          setUserId(userId);
         }
       } catch (error) {
         console.error('Error loading tokens', error);
       }
     }
   };
-
 
   const sampleCall = async () => {
     console.log("accessToken: ", accessToken)
@@ -194,7 +206,6 @@ export default function HomeScreen() {
     }
   };
 
-  // --- NEW: get_all_files API call with new response format ---
   const getAllFiles = async () => {
     if (!accessToken) {
       Alert.alert('Not authenticated', 'Please sign in first.');
@@ -282,7 +293,7 @@ export default function HomeScreen() {
 
       const formData = new FormData();
       formData.append('file', fileBlob);
-      formData.append('metadata', JSON.stringify({ subject: 'Math', course: 'Algebra' }));
+      formData.append('metadata', JSON.stringify({ courseName: courseName, grade: grade }));
       const response = await fetch(Global.backendDomain+'/upload_file', {
         method: 'POST',
         headers: {
@@ -311,10 +322,36 @@ export default function HomeScreen() {
     }
   };
 
-  const handleFileUploadAndBackend = async () => {
-    // First, pick the file.
-    await handleFileUpload();
-    await handleUploadToBackend();
+  const goToPreviousImage = () => {
+    if (selectedFile && selectedFile.per_image && currentImageIndex > 0) {
+      setCurrentImageIndex(currentImageIndex - 1);
+    }
+  };
+  const goToNextImage = () => {
+    if (selectedFile && selectedFile.per_image && currentImageIndex < selectedFile.per_image.length - 1) {
+      setCurrentImageIndex(currentImageIndex + 1);
+    }
+  };
+
+  const handlePayment = async () => {
+    const stripe = await loadStripe('pk_test_51HPJqWDahoKKsJZphETtLtPQRI0cOW6syAkyc1LHQHgLPCqoT8EYuF3yHJ2N28JLS8RqBr9Bg7m4KlsIDnuVnWNU004gUQkPKn');
+    console.log("stripe: ", stripe)
+    console.log("userId: ", userId)
+    if (stripe && userId) {
+      const { error } = await stripe.redirectToCheckout({
+        lineItems: [{ price: 'price_1Qv2jpDahoKKsJZpgsLyKG0k', quantity: 1 }],
+        mode: 'subscription', // 'payment' | 'subscription';
+        clientReferenceId: userId.toString(),
+        successUrl: `${window.location.origin}`,
+        cancelUrl: window.location.origin,
+      });
+
+      if (error) {
+        console.log('Stripe Error:', error);
+      }
+    } else {
+      console.log('Stripe is null!');
+    }
   };
 
   const deviceWidth = Dimensions.get('window').width;
@@ -374,82 +411,108 @@ export default function HomeScreen() {
       )}
       <Button title="sampleCall" disabled={!request} onPress={sampleCall} />
 
-      {/* --- FILE UPLOAD SECTION --- */}
-      <View style={styles.uploadSection}>
-        <ThemedText style={styles.uploadTitle}>File Upload</ThemedText>
-        <TouchableOpacity style={styles.selectFileButton} onPress={handleFileUpload}>
-          <ThemedText style={styles.selectFileButtonText}>
-            {fileName ? 'Change File' : 'Select File'}
-          </ThemedText>
-        </TouchableOpacity>
-        {fileName && (
-          <View style={styles.selectedFileContainer}>
-            <ThemedText style={styles.selectedFileName}>Selected: {fileName}</ThemedText>
-            <TouchableOpacity style={styles.uploadButton} onPress={handleUploadToBackend}>
-              <ThemedText style={styles.uploadButtonText}>Upload File</ThemedText>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-
-      {/* --- NEW SECTION: Files & Slideshow --- */}
-      <View style={styles.fileSection}>
-        <Button title="Load Files" onPress={getAllFiles} />
-        {allFiles.length > 0 && (
-          <>
-            <ThemedText style={styles.sectionTitle}>Select a File</ThemedText>
-            <Picker
-              selectedValue={selectedFile?.id}
-              onValueChange={(itemValue) => {
-                const file = allFiles.find((f) => f.id === itemValue);
-                setSelectedFile(file || null);
-              }}
-            >
-              {allFiles.map((file) => (
-                <Picker.Item
-                  key={file.id}
-                  label={`File ${file.id}`} // You can customize the label (e.g. file.summary)
-                  value={file.id}
-                />
-              ))}
-            </Picker>
-          </>
-        )}
-
-        {selectedFile && selectedFile.per_image && selectedFile.per_image.length > 0 && (
-          <>
-            <ThemedText style={styles.sectionTitle}>Slideshow</ThemedText>
-            <ScrollView
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              style={[styles.carousel, { width: deviceWidth }]}
-            >
-              {selectedFile.per_image.map((item, index) => (
-                <View key={index} style={[styles.carouselItem, { width: deviceWidth }]}>
-                  <Image
-                    source={{ uri: item.path }}
-                    style={styles.carouselImage}
-                    resizeMode="contain"
+      {email && (
+        <>
+          {/* (c) New file upload Section */}
+          <ThemedView style={styles.sectionContainer}>
+            <ThemedText style={styles.sectionHeader}>New Annotation</ThemedText>
+            <View style={styles.buttonContainer}>
+              <Button title={fileName ? "Change File" : "Select File"} onPress={handleFileUpload} />
+            </View>
+            {fileName && (
+              <>
+                <ThemedText style={styles.fileNameText}>Selected File: {fileName}</ThemedText>
+                {/* (f) Metadata Form */}
+                <View style={styles.formContainer}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Course Name"
+                    value={courseName}
+                    onChangeText={setCourseName}
                   />
-                  <ThemedText style={styles.captionText}>{item.llm}</ThemedText>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Grade"
+                    value={grade}
+                    onChangeText={setGrade}
+                  />
+                  <View style={styles.buttonContainer}>
+                    <Button title="Upload File" onPress={handleUploadToBackend} />
+                  </View>
                 </View>
-              ))}
-            </ScrollView>
-          </>
-        )}
-      </View>
+              </>
+            )}
+          </ThemedView>
+
+          {/* My Annotations Section */}
+          <ThemedView style={styles.sectionContainer}>
+            <ThemedText style={styles.sectionHeader}>My Annotations</ThemedText>
+            <View style={styles.buttonContainer}>
+              <Button title="Load Files" onPress={getAllFiles} />
+            </View>
+            
+            {selectedFile && (
+              <View style={styles.fileViewContainer}>
+                {allFiles.length > 0 && (
+                  <>
+                    <ThemedText style={styles.sectionSubHeader}>Select a File</ThemedText>
+                    <Picker
+                      selectedValue={selectedFile.id}
+                      onValueChange={(itemValue) => {
+                        const file = allFiles.find((f) => f.id === itemValue);
+                        setSelectedFile(file || null);
+                        setCurrentImageIndex(0);
+                      }}
+                      style={styles.picker}
+                    >
+                      {allFiles.map((file) => (
+                        <Picker.Item key={file.id} label={`File ${file.id}`} value={file.id} />
+                      ))}
+                    </Picker>
+                  </>
+                )}
+                {/* (e) Display Summary */}
+                <ThemedText style={styles.summaryText}>Summary: {selectedFile.summary}</ThemedText>
+                {selectedFile.per_image && selectedFile.per_image.length > 0 && (
+                  <View style={styles.imageContainer}>
+                    <Image
+                      source={{ uri: selectedFile.per_image[currentImageIndex].path }}
+                      style={[styles.image, { width: deviceWidth * 0.95, height: 500 }]}
+                      resizeMode="contain"
+                    />
+                    <ThemedText style={styles.captionText}>
+                      {selectedFile.per_image[currentImageIndex].llm}
+                    </ThemedText>
+                    {/* (d) Navigation Buttons for per_image */}
+                    <View style={styles.navigationContainer}>
+                      <TouchableOpacity onPress={goToPreviousImage} style={styles.navButton}>
+                        <ThemedText style={styles.navButtonText}>Previous</ThemedText>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={goToNextImage} style={styles.navButton}>
+                        <ThemedText style={styles.navButtonText}>Next</ThemedText>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </ThemedView>
+
+         <View style={styles.buttonContainer}>
+            <Button title="Get Your Fortune" onPress={handlePayment} />
+          </View>
+          {/* (Optional) sampleCall for debugging */}
+          <View style={styles.buttonContainer}>
+            <Button title="sampleCall" onPress={sampleCall} />
+          </View>
+        </>
+      )}
+
     </ParallaxScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   stepContainer: {
     gap: 8,
     marginBottom: 8,
@@ -461,56 +524,10 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
   },
-  // --- FILE UPLOAD STYLES ---
-  uploadSection: {
-    marginVertical: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#f0f4f7',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-  },
   uploadTitle: {
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 12,
-  },
-  selectFileButton: {
-    backgroundColor: '#4a90e2',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 5,
-    alignItems: 'center',
-  },
-  selectFileButtonText: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  selectedFileContainer: {
-    marginTop: 12,
-    alignItems: 'center',
-  },
-  selectedFileName: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  uploadButton: {
-    backgroundColor: '#34a853',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 5,
-  },
-  uploadButtonText: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  // --- FILES & SLIDESHOW STYLES ---
-  fileSection: {
-    marginVertical: 16,
-    paddingHorizontal: 16,
   },
   sectionTitle: {
     fontSize: 18,
@@ -531,9 +548,102 @@ const styles = StyleSheet.create({
     height: 250,
     borderRadius: 8,
   },
-  captionText: {
-    marginTop: 8,
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    margin: 16,
+  },
+  authenticatedContainer: {
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  // (b) Button container style to limit width
+  buttonContainer: {
+    marginVertical: 10,
+    alignSelf: 'center',
+    width: '80%',
+  },
+  sectionContainer: {
+    marginVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#f0f4f7',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+    marginHorizontal: 16,
+  },
+  sectionHeader: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  sectionSubHeader: {
+    fontSize: 18,
+    fontWeight: '500',
+    marginVertical: 8,
+    textAlign: 'center',
+  },
+  fileNameText: {
     fontSize: 16,
     textAlign: 'center',
+    marginVertical: 8,
+  },
+  formContainer: {
+    marginTop: 12,
+  },
+  input: {
+    height: 40,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    marginVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 4,
+  },
+  fileViewContainer: {
+    marginTop: 16,
+  },
+  summaryText: {
+    fontSize: 16,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  imageContainer: {
+    alignItems: 'center',
+  },
+  image: {
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  captionText: {
+    fontSize: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  navigationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '80%',
+    marginVertical: 10,
+  },
+  navButton: {
+    backgroundColor: '#4a90e2',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+  },
+  navButtonText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  picker: {
+    marginHorizontal: 16,
+    alignItems: 'center',
+    width: '50%',
+    height: 30,
   },
 });
