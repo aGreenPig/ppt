@@ -31,6 +31,11 @@ interface FileData {
   per_image: PerImage[];
 }
 
+interface SubscriptionInfo {
+  id: number;
+  until: number | null;
+}
+
 export default function HomeScreen() {
   // access related
   const [accessToken, setAccessToken] = useState<String | null>(null);
@@ -38,6 +43,7 @@ export default function HomeScreen() {
   const [email, setEmail] = useState<String | null>(null);
   const [idToken, setIdToken] = useState<String | null>(null);
   const [userId, setUserId] = useState<String | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     iosClientId: Global.iosClientId,
@@ -71,6 +77,13 @@ export default function HomeScreen() {
     return unsubscribe; // Unsubscribe on unmount
   }, []);
 
+  // Fetch user data when accessToken is available
+  useEffect(() => {
+    if (accessToken) {
+      getUserData();
+    }
+  }, [accessToken]);
+
   const handleSignIn = async () => {
     promptAsync();
   };
@@ -80,6 +93,22 @@ export default function HomeScreen() {
       setAccessToken(null)
       setRefreshToken(null)
       setEmail(null)
+      setUserId(null)
+      if (Platform.OS === 'web') {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('email');
+        localStorage.removeItem('userId');
+      } else {
+        try {
+          AsyncStorage.removeItem('accessToken');
+          AsyncStorage.removeItem('refreshToken');
+          AsyncStorage.removeItem('email');
+          AsyncStorage.removeItem('userId');
+        } catch (error) {
+          console.error('Error clearing tokens', error);
+        }
+      }
     }).catch((error) => {
       console.log(error)
     });
@@ -87,14 +116,12 @@ export default function HomeScreen() {
 
   // Watch for authentication responses.
   useEffect(() => {
-    console.log("Global.authRedirectUrl: ", Global.authRedirectUrl)
     console.log("authentication response: ", response)
     if (response?.type === 'success') {
       const { authentication, params } = response;
       if (params) {
         //setAccessToken(authentication.accessToken);
         //fetchUserInfo(authentication.accessToken);
-        console.log("response.params: ", params)
         setIdToken(params.id_token)
         verifyIdToken(params.id_token)
       }
@@ -123,8 +150,8 @@ export default function HomeScreen() {
       if (data.access_token && data.refresh_token) {
         setAccessToken(data.access_token);
         setRefreshToken(data.refresh_token);
-        setUserId(data.user_id);
         setEmail(data.email);
+        setUserId(data.user_id);
         saveTokens(data.access_token, data.refresh_token, data.email, data.userId);
       }
     } catch (error) {
@@ -145,7 +172,7 @@ export default function HomeScreen() {
         await AsyncStorage.setItem('accessToken', access);
         await AsyncStorage.setItem('refreshToken', refresh);
         await AsyncStorage.setItem('email', email);
-        localStorage.setItem('userId', userId);
+        await AsyncStorage.setItem('userId', userId);
       } catch (error) {
         console.error('Error saving tokens', error);
       }
@@ -183,8 +210,51 @@ export default function HomeScreen() {
     }
   };
 
+  const getUserData = async () => {
+    if (!accessToken) return;
+    try {
+      const response = await fetch(Global.backendDomain + '/get_user_data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json();
+      console.log('get_user_data response: ', data);
+      if(data.data && data.data.subscription) {
+        setSubscription(data.data.subscription);
+      }
+    } catch (error) {
+      console.error('Error fetching user data: ', error);
+    }
+  };
+
+  const handleModifySubscription = async (action: string) => {
+    try {
+      const response = await fetch(Global.backendDomain + '/modify_subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ action: action }),
+      });
+      const data = await response.json();
+      console.log("modify_subscription response: ", data);
+      if (data.data && data.data.subscription) {
+        setSubscription(data.data.subscription);
+      }
+      await getUserData();
+    } catch (error) {
+      console.error("Error reactivating subscription:", error);
+    }
+  };
+
   const sampleCall = async () => {
     console.log("accessToken: ", accessToken)
+    console.log("userId: ", userId)
     if (!accessToken) {
       return;
     }
@@ -281,7 +351,6 @@ export default function HomeScreen() {
   };
 
   const handleUploadToBackend = async () => {
-    console.log(123)
     if (!fileBlob || !fileName) {
       Alert.alert('No file selected', 'Please upload a file first.');
       return;
@@ -336,7 +405,7 @@ export default function HomeScreen() {
   const handlePayment = async () => {
     const stripe = await loadStripe('pk_test_51HPJqWDahoKKsJZphETtLtPQRI0cOW6syAkyc1LHQHgLPCqoT8EYuF3yHJ2N28JLS8RqBr9Bg7m4KlsIDnuVnWNU004gUQkPKn');
     console.log("stripe: ", stripe)
-    console.log("userId: ", userId)
+    console.log("userId: ", userId, "userId.toString(): ", userId.toString())
     if (stripe && userId) {
       const { error } = await stripe.redirectToCheckout({
         lineItems: [{ price: 'price_1Qv2jpDahoKKsJZpgsLyKG0k', quantity: 1 }],
@@ -410,6 +479,34 @@ export default function HomeScreen() {
         <Button title="Sign in with Google" disabled={!request} onPress={handleSignIn} />
       )}
       <Button title="sampleCall" disabled={!request} onPress={sampleCall} />
+
+      {subscription && (
+        <ThemedView style={styles.sectionContainer}>
+          <ThemedText style={styles.sectionHeader}>Subscription Status</ThemedText>
+          {subscription.until >= 9999999998 ? (
+            <>
+              <ThemedText style={styles.summaryText}>Your subscription is active.</ThemedText>
+              <Button title="Cancel Subscription" onPress={() => handleModifySubscription("CANCEL")} />
+            </>
+          ) : (
+            <>
+              {subscription.until && subscription.until > Math.floor(Date.now() / 1000) ? (
+                <ThemedView>
+                  <ThemedText style={styles.summaryText}>
+                    Your subscription is canceled and will expire on {new Date(subscription.until * 1000).toLocaleDateString()}.
+                  </ThemedText>
+                  <Button title="Reactivate Subscription" onPress={() => handleModifySubscription("REACTIVATE")} />
+                </ThemedView>
+              ) : (
+                <ThemedView>
+                  <ThemedText style={styles.summaryText}>You do not have an active subscription.</ThemedText>
+                  <Button title="New Subscription" onPress={handlePayment} />
+                </ThemedView>
+              )}
+            </>
+          )}
+        </ThemedView>
+      )}
 
       {email && (
         <>
