@@ -27,6 +27,7 @@ interface PerImage {
 
 interface FileData {
   id: string;
+  name: string;
   summary: string;
   per_image: PerImage[];
 }
@@ -248,7 +249,29 @@ export default function HomeScreen() {
       }
       await getUserData();
     } catch (error) {
-      console.error("Error reactivating subscription:", error);
+      console.error("Error modify_subscription:", error);
+    }
+  };
+
+  const handleDeleteFile = async () => {
+    if (!selectedFile || !selectedFile.id) {
+      Alert.alert('No file selected', 'Please select a file first.');
+      return;
+    }
+    try {
+      const response = await fetch(Global.backendDomain + '/delete_file', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ fid: selectedFile.id }),
+      });
+      const data = await response.json();
+      console.log("delete_file response: ", data);
+      await getAllFiles();
+    } catch (error) {
+      console.error("Error delete_file:", error);
     }
   };
 
@@ -308,7 +331,7 @@ export default function HomeScreen() {
       if (Platform.OS === 'web') {
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.pdf,.ppt,.pptx';
+        input.accept = '.pdf'; // '.pdf,.ppt,.pptx';
         input.onchange = async (event: any) => {
           const file = event.target.files[0];
           if (file) {
@@ -563,9 +586,10 @@ export default function HomeScreen() {
                       style={styles.picker}
                     >
                       {allFiles.map((file) => (
-                        <Picker.Item key={file.id} label={`File ${file.id}`} value={file.id} />
+                        <Picker.Item key={file.id} label={`File ${file.name}`} value={file.id} />
                       ))}
                     </Picker>
+                    <Button title="Delete File" onPress={handleDeleteFile} color="#ff4444" />
                   </>
                 )}
                 {/* (e) Display Summary */}
