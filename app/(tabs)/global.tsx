@@ -20,3 +20,7 @@ export const androidClientId = 'TBD'
 export const backendDomain = __DEV__ ? 'http://127.0.0.1:5000' : 'https://gb9i2r5dmg.execute-api.us-east-1.amazonaws.com/dev'
 
 export const authRedirectUrl = __DEV__ ? 'http://localhost:8081' : "https://agreenpig.github.io/ppt/"
+
+export const stripeKey = __DEV__ ? 'pk_test_51HPJqWDahoKKsJZphETtLtPQRI0cOW6syAkyc1LHQHgLPCqoT8EYuF3yHJ2N28JLS8RqBr9Bg7m4KlsIDnuVnWNU004gUQkPKn' : "pk_live_51HPJqWDahoKKsJZpZkh3gEstHXISz3NkjnDSdmbFDuEz7yZEXP8XO5pIQhNWiojxaOw13U9Pta9TgCPRxS8SDgs300cNz6Bp2C"
+export const subscriptionPriceId = __DEV__ ? 'price_1Qv2jpDahoKKsJZpgsLyKG0k' : "XXX"
+export const oneTimePriceId = __DEV__ ? 'price_1PrrH2DahoKKsJZpMMwkgjAl' : "XXX"

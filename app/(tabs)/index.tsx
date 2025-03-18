@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions, TouchableOpacity, TextInput } from 'react-native';
+import { ActivityIndicator, Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions, TouchableOpacity, TextInput, Text } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +9,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { getAuth, onAuthStateChanged, User } from "firebase/auth";
 import { loadStripe } from '@stripe/stripe-js';
 import * as Global from './global';
+import Modal from 'react-native-modal';
 
 import { HelloWave } from '@/components/HelloWave';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
@@ -21,8 +22,8 @@ const app = initializeApp(Global.firebaseConfig);
 const auth = getAuth(app);
 
 interface PerImage {
-  llm: string;
   path: string;
+  annotation: string;
 }
 
 interface FileData {
@@ -35,6 +36,7 @@ interface FileData {
 interface SubscriptionInfo {
   id: number;
   until: number | null;
+  credit_balance: number | null;
 }
 
 export default function HomeScreen() {
@@ -45,6 +47,8 @@ export default function HomeScreen() {
   const [idToken, setIdToken] = useState<String | null>(null);
   const [userId, setUserId] = useState<String | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+  const [updateNewError, setUploadNewError] = useState<String | null>(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     iosClientId: Global.iosClientId,
@@ -66,6 +70,7 @@ export default function HomeScreen() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [courseName, setCourseName] = useState('');
   const [grade, setGrade] = useState('');
+  const [alertVisible, setAlertVisible] = useState(false);
 
   // Load tokens when the component mounts
   useEffect(() => {
@@ -85,6 +90,9 @@ export default function HomeScreen() {
     }
   }, [accessToken]);
 
+  /////
+  // authentication related functions
+  /////
   const handleSignIn = async () => {
     promptAsync();
   };
@@ -136,7 +144,7 @@ export default function HomeScreen() {
       return;
     }
     try {
-      const response = await fetch(Global.backendDomain+'/verify_id_token', {
+      const response = await fetch(Global.backendDomain + '/verify_id_token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -224,7 +232,7 @@ export default function HomeScreen() {
       });
       const data = await response.json();
       console.log('get_user_data response: ', data);
-      if(data.data && data.data.subscription) {
+      if (data.data && data.data.subscription) {
         setSubscription(data.data.subscription);
       }
     } catch (error) {
@@ -232,80 +240,16 @@ export default function HomeScreen() {
     }
   };
 
-  const handleModifySubscription = async (action: string) => {
-    try {
-      const response = await fetch(Global.backendDomain + '/modify_subscription', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ action: action }),
-      });
-      const data = await response.json();
-      console.log("modify_subscription response: ", data);
-      if (data.data && data.data.subscription) {
-        setSubscription(data.data.subscription);
-      }
-      await getUserData();
-    } catch (error) {
-      console.error("Error modify_subscription:", error);
-    }
-  };
-
-  const handleDeleteFile = async () => {
-    if (!selectedFile || !selectedFile.id) {
-      Alert.alert('No file selected', 'Please select a file first.');
-      return;
-    }
-    try {
-      const response = await fetch(Global.backendDomain + '/delete_file', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ fid: selectedFile.id }),
-      });
-      const data = await response.json();
-      console.log("delete_file response: ", data);
-      await getAllFiles();
-    } catch (error) {
-      console.error("Error delete_file:", error);
-    }
-  };
-
-  const sampleCall = async () => {
-    console.log("accessToken: ", accessToken)
-    console.log("userId: ", userId)
-    if (!accessToken) {
-      return;
-    }
-    try {
-      const response = await fetch(Global.backendDomain+'/samplecall', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          email: "123@123.com",
-        }),
-      });
-      const data = await response.json();
-      console.log("samplecall response: ", data)
-    } catch (error) {
-      console.error('Error calling samplecall: ', error);
-    }
-  };
-
+  /////
+  // file related functions
+  /////
   const getAllFiles = async () => {
     if (!accessToken) {
       Alert.alert('Not authenticated', 'Please sign in first.');
       return;
     }
     try {
-      const response = await fetch(Global.backendDomain+'/get_all_files', {
+      const response = await fetch(Global.backendDomain + '/get_all_files', {
         method: 'POST', // Adjust the method if needed.
         headers: {
           'Content-Type': 'application/json',
@@ -319,6 +263,10 @@ export default function HomeScreen() {
         setAllFiles(data.data.files);
         if (data.data.files.length > 0) {
           setSelectedFile(data.data.files[0]);
+        } else {
+          setSelectedFile(null);
+          // window.alert('No files found. Please upload a file first.');
+          setAlertVisible(true);
         }
       }
     } catch (error) {
@@ -374,6 +322,8 @@ export default function HomeScreen() {
   };
 
   const handleUploadToBackend = async () => {
+    setUploadLoading(true);
+    // await sleep(3000);
     if (!fileBlob || !fileName) {
       Alert.alert('No file selected', 'Please upload a file first.');
       return;
@@ -385,8 +335,8 @@ export default function HomeScreen() {
 
       const formData = new FormData();
       formData.append('file', fileBlob);
-      formData.append('metadata', JSON.stringify({ courseName: courseName, grade: grade }));
-      const response = await fetch(Global.backendDomain+'/upload_file', {
+      formData.append('metadata', JSON.stringify({ course_name: courseName, grade: grade }));
+      const response = await fetch(Global.backendDomain + '/upload_file', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -398,21 +348,51 @@ export default function HomeScreen() {
         Alert.alert('Success', 'File uploaded successfully!');
         const data = await response.json();
         console.log('upload_file response: ', data);
+        if (data.data.error) {
+          setUploadNewError(data.data.error);
+        }
         if (data.data.files) {
           setAllFiles(data.data.files);
           if (data.data.files.length > 0) {
             setSelectedFile(data.data.files[0]);
           }
         }
-
+        await getUserData();
       } else {
         Alert.alert('Error', 'Failed to upload file to backend.');
       }
     } catch (error) {
       console.error('Error sending file to backend:', error);
       Alert.alert('Error', 'An error occurred while uploading the file.');
+    } finally {
+      // Turn off loading state.
+      setUploadLoading(false);
     }
   };
+
+  const handleDeleteFile = async () => {
+    if (!selectedFile || !selectedFile.id) {
+      Alert.alert('No file selected', 'Please select a file first.');
+      return;
+    }
+    try {
+      const response = await fetch(Global.backendDomain + '/delete_file', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ fid: selectedFile.id }),
+      });
+      const data = await response.json();
+      console.log("delete_file response: ", data);
+      Alert.alert('Done', 'Your file has been deleted.');
+      await getAllFiles();
+    } catch (error) {
+      console.error("Error delete_file:", error);
+    }
+  };
+
 
   const goToPreviousImage = () => {
     if (selectedFile && selectedFile.per_image && currentImageIndex > 0) {
@@ -425,14 +405,32 @@ export default function HomeScreen() {
     }
   };
 
-  const handlePayment = async () => {
-    const stripe = await loadStripe('pk_test_51HPJqWDahoKKsJZphETtLtPQRI0cOW6syAkyc1LHQHgLPCqoT8EYuF3yHJ2N28JLS8RqBr9Bg7m4KlsIDnuVnWNU004gUQkPKn');
+  const CustomAlert = ({ isVisible, onClose, message }) => (
+    <Modal isVisible={isVisible}>
+      <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 10 }}>
+        <Text>{message}</Text>
+        <Button title="OK" onPress={onClose} />
+      </View>
+    </Modal>
+  );
+
+  /////
+  // payment related functions
+  /////
+  const handlePayment = async (action: string) => {
+    const stripe = await loadStripe(Global.stripeKey);
     console.log("stripe: ", stripe)
     console.log("userId: ", userId, "userId.toString(): ", userId.toString())
+    var mode: 'subscription' | 'payment' = 'subscription';
+    var priceId: string = Global.subscriptionPriceId;
+    if (action == 'onetime') {
+      mode = 'payment';
+      priceId = Global.oneTimePriceId;
+    }
     if (stripe && userId) {
       const { error } = await stripe.redirectToCheckout({
-        lineItems: [{ price: 'price_1Qv2jpDahoKKsJZpgsLyKG0k', quantity: 1 }],
-        mode: 'subscription', // 'payment' | 'subscription';
+        lineItems: [{ price: priceId, quantity: 1 }],
+        mode: mode,
         clientReferenceId: userId.toString(),
         successUrl: `${window.location.origin}`,
         cancelUrl: window.location.origin,
@@ -446,6 +444,28 @@ export default function HomeScreen() {
     }
   };
 
+  const handleModifySubscription = async (action: string) => {
+    try {
+      const response = await fetch(Global.backendDomain + '/modify_subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ action: action }),
+      });
+      const data = await response.json();
+      console.log("modify_subscription response: ", data);
+      if (data.data && data.data.subscription) {
+        setSubscription(data.data.subscription);
+      }
+      await getUserData();
+    } catch (error) {
+      console.error("Error modify_subscription:", error);
+    }
+  };
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const deviceWidth = Dimensions.get('window').width;
 
   return (
@@ -493,52 +513,108 @@ export default function HomeScreen() {
         </ThemedText>
       </ThemedView>
 
-      {email ? (
-        <View>
-          <ThemedText>Welcome, {email}!</ThemedText>
-          <Button title="Sign Out" onPress={handleSignOut} />
+      {/* Feature Cards */}
+      <ThemedView style={styles.featureContainer}>
+        <ThemedText style={styles.featureTitle}>Slide Processing and Knowledge Extraction</ThemedText>
+        <View style={styles.featureDetails}>
+          <ThemedText style={styles.featureItem}>• Extract text, visuals, tables, and key concepts</ThemedText>
+          <ThemedText style={styles.featureItem}>• OCR & metadata extraction for complex visuals</ThemedText>
+          <ThemedText style={styles.featureItem}>• Auto-highlight definitions, formulas, diagrams, and bullet points</ThemedText>
         </View>
-      ) : (
-        <Button title="Sign in with Google" disabled={!request} onPress={handleSignIn} />
-      )}
-      <Button title="sampleCall" disabled={!request} onPress={sampleCall} />
+      </ThemedView>
 
-      {subscription && (
-        <ThemedView style={styles.sectionContainer}>
-          <ThemedText style={styles.sectionHeader}>Subscription Status</ThemedText>
-          {subscription.until >= 9999999998 ? (
-            <>
-              <ThemedText style={styles.summaryText}>Your subscription is active.</ThemedText>
-              <Button title="Cancel Subscription" onPress={() => handleModifySubscription("CANCEL")} />
-            </>
-          ) : (
-            <>
-              {subscription.until && subscription.until > Math.floor(Date.now() / 1000) ? (
-                <ThemedView>
-                  <ThemedText style={styles.summaryText}>
-                    Your subscription is canceled and will expire on {new Date(subscription.until * 1000).toLocaleDateString()}.
-                  </ThemedText>
-                  <Button title="Reactivate Subscription" onPress={() => handleModifySubscription("REACTIVATE")} />
-                </ThemedView>
+      <ThemedView style={styles.featureContainer}>
+        <ThemedText style={styles.featureTitle}>Personalized Teaching Style</ThemedText>
+        <View style={styles.featureDetails}>
+          <ThemedText style={styles.featureItem}>• Tailored teaching methods for your learning style</ThemedText>
+          <ThemedText style={styles.featureItem}>• Options for concise summaries or detailed explanations</ThemedText>
+          <ThemedText style={styles.featureItem}>• External knowledge extensions available</ThemedText>
+        </View>
+      </ThemedView>
+
+      <ThemedView style={styles.featureContainer}>
+        <ThemedText style={styles.featureTitle}>
+          Voice Explanation & Storytelling <ThemedText type="caption">(upcoming)</ThemedText>
+        </ThemedText>
+        <View style={styles.featureDetails}>
+          <ThemedText style={styles.featureItem}>• Convert slides to narrated audio</ThemedText>
+          <ThemedText style={styles.featureItem}>• Engaging storytelling techniques</ThemedText>
+        </View>
+      </ThemedView>
+
+      <ThemedView style={styles.pricingContainer}>
+        <ThemedText style={styles.pricingTitle}>Pricing</ThemedText>
+        <View style={styles.pricingRow}>
+          <ThemedText style={styles.pricingLabel}>Slide Annotation:</ThemedText>
+          <ThemedText style={styles.pricingValue}>1 credit</ThemedText>
+        </View>
+        <View style={styles.pricingRow}>
+          <ThemedText style={styles.pricingLabel}>Monthly Subscription:</ThemedText>
+          <ThemedText style={styles.pricingValue}>$3.99 / 1000 credits</ThemedText>
+        </View>
+        <View style={styles.pricingRow}>
+          <ThemedText style={styles.pricingLabel}>Credit Purchase:</ThemedText>
+          <ThemedText style={styles.pricingValue}>1000 credits for $5.99</ThemedText>
+        </View>
+      </ThemedView>
+
+      {email ? (
+        <>
+          <ThemedView style={styles.sectionContainer}>
+            <ThemedText style={styles.sectionHeader}>Welcome, {email}!</ThemedText>
+            <View style={styles.buttonContainer}>
+              <Button title="Sign Out" onPress={handleSignOut} />
+            </View>
+          </ThemedView>
+          {subscription && (
+            <ThemedView style={styles.sectionContainer}>
+              <ThemedText style={styles.sectionHeader}>Subscription Status</ThemedText>
+              {subscription.until >= 9999999998 ? (
+                <>
+                  <ThemedText style={styles.summaryText}>Your subscription is active.</ThemedText>
+                  <View style={styles.buttonContainer}>
+                    <Button title="Cancel Subscription" onPress={() => handleModifySubscription("CANCEL")} />
+                  </View>
+                </>
               ) : (
-                <ThemedView>
-                  <ThemedText style={styles.summaryText}>You do not have an active subscription.</ThemedText>
-                  <Button title="New Subscription" onPress={handlePayment} />
-                </ThemedView>
+                <>
+                  {subscription.until && subscription.until > Math.floor(Date.now() / 1000) ? (
+                    <ThemedView>
+                      <ThemedText style={styles.summaryText}>
+                        Your subscription is canceled and will expire on {new Date(subscription.until * 1000).toLocaleDateString()}.
+                      </ThemedText>
+                      <Button title="Reactivate Subscription" onPress={() => handleModifySubscription("REACTIVATE")} />
+                    </ThemedView>
+                  ) : (
+                    <ThemedView>
+                      <ThemedText style={styles.summaryText}>You do not have an active subscription.</ThemedText>
+                      <Button title="New Subscription" onPress={() => handlePayment("subscription")} />
+                    </ThemedView>
+                  )}
+                </>
               )}
-            </>
+              <ThemedText style={styles.summaryText}>Reminging credit: {subscription.credit_balance}</ThemedText>
+              <View style={styles.buttonContainer}>
+                <Button title="Load Up More Credit" onPress={() => handlePayment("onetime")} />
+              </View>
+            </ThemedView>
           )}
-        </ThemedView>
+        </>
+      ) : (
+        <View style={styles.buttonContainer}>
+          <Button title="Sign in with Google" disabled={!request} onPress={handleSignIn} />
+        </View>
       )}
 
       {email && (
         <>
-          {/* (c) New file upload Section */}
+          {/* New file upload Section */}
           <ThemedView style={styles.sectionContainer}>
-            <ThemedText style={styles.sectionHeader}>New Annotation</ThemedText>
+            <ThemedText style={styles.sectionHeader}>Upload New 🆕 Slide For Annotation</ThemedText>
             <View style={styles.buttonContainer}>
-              <Button title={fileName ? "Change File" : "Select File"} onPress={handleFileUpload} />
+              <Button title={fileName ? "Change File" : "Select New Slide"} onPress={handleFileUpload} />
             </View>
+            <ThemedText style={styles.fileNameText}>{updateNewError}</ThemedText>
             {fileName && (
               <>
                 <ThemedText style={styles.fileNameText}>Selected File: {fileName}</ThemedText>
@@ -558,38 +634,53 @@ export default function HomeScreen() {
                   />
                   <View style={styles.buttonContainer}>
                     <Button title="Upload File" onPress={handleUploadToBackend} />
+                    {uploadLoading && (
+                      <>
+                        <ActivityIndicator size="large" color="#0000ff" style={{ marginVertical: 10 }} />
+                        <ThemedText style={{ marginTop: 5 }}>Processing?</ThemedText>
+                      </>
+                    )}
                   </View>
                 </View>
               </>
             )}
           </ThemedView>
 
-          {/* My Annotations Section */}
+          {/* Current Files Section */}
           <ThemedView style={styles.sectionContainer}>
-            <ThemedText style={styles.sectionHeader}>My Annotations</ThemedText>
+            <ThemedText style={styles.sectionHeader}>My Slides 🕰</ThemedText>
             <View style={styles.buttonContainer}>
-              <Button title="Load Files" onPress={getAllFiles} />
+              <Button title="Load All my Historical Slides" onPress={getAllFiles} />
             </View>
-            
+            <CustomAlert
+              isVisible={alertVisible}
+              onClose={() => setAlertVisible(false)}
+              message="No files found. Please upload a file first."
+            />
+
             {selectedFile && (
               <View style={styles.fileViewContainer}>
                 {allFiles.length > 0 && (
                   <>
-                    <ThemedText style={styles.sectionSubHeader}>Select a File</ThemedText>
-                    <Picker
-                      selectedValue={selectedFile.id}
-                      onValueChange={(itemValue) => {
-                        const file = allFiles.find((f) => f.id === itemValue);
-                        setSelectedFile(file || null);
-                        setCurrentImageIndex(0);
-                      }}
-                      style={styles.picker}
-                    >
-                      {allFiles.map((file) => (
-                        <Picker.Item key={file.id} label={`File ${file.name}`} value={file.id} />
-                      ))}
-                    </Picker>
-                    <Button title="Delete File" onPress={handleDeleteFile} color="#ff4444" />
+                    <View style={styles.inlineContainer}>
+                      <ThemedText style={styles.sectionSubHeader}>Select a File</ThemedText>
+                      <Picker
+                        selectedValue={selectedFile.id}
+                        onValueChange={(itemValue) => {
+                          const file = allFiles.find((f) => f.id === itemValue);
+                          setSelectedFile(file || null);
+                          setCurrentImageIndex(0);
+                        }}
+                        style={styles.picker}
+                      >
+                        {allFiles.map((file) => (
+                          <Picker.Item key={file.id} label={`File ${file.name}`} value={file.id} />
+                        ))}
+                      </Picker>
+                    </View>
+                    <View style={styles.buttonContainer}>
+                      <Button title="Delete Selected File Permanently" onPress={handleDeleteFile} color="#ff4444" />
+                    </View>
                   </>
                 )}
                 {/* (e) Display Summary */}
@@ -602,7 +693,7 @@ export default function HomeScreen() {
                       resizeMode="contain"
                     />
                     <ThemedText style={styles.captionText}>
-                      {selectedFile.per_image[currentImageIndex].llm}
+                      {selectedFile.per_image[currentImageIndex].annotation}
                     </ThemedText>
                     {/* (d) Navigation Buttons for per_image */}
                     <View style={styles.navigationContainer}>
@@ -618,14 +709,6 @@ export default function HomeScreen() {
               </View>
             )}
           </ThemedView>
-
-         <View style={styles.buttonContainer}>
-            <Button title="Get Your Fortune" onPress={handlePayment} />
-          </View>
-          {/* (Optional) sampleCall for debugging */}
-          <View style={styles.buttonContainer}>
-            <Button title="sampleCall" onPress={sampleCall} />
-          </View>
         </>
       )}
 
@@ -681,9 +764,9 @@ const styles = StyleSheet.create({
   },
   // (b) Button container style to limit width
   buttonContainer: {
-    marginVertical: 10,
+    marginVertical: 6,
     alignSelf: 'center',
-    width: '80%',
+    width: '25%',
   },
   sectionContainer: {
     marginVertical: 16,
@@ -762,9 +845,72 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   picker: {
-    marginHorizontal: 16,
+    marginHorizontal: 10,
     alignItems: 'center',
     width: '50%',
     height: 30,
+  },
+  inlineContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // New styles for feature cards
+  featureContainer: {
+    marginVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#e8f0fe',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+    marginHorizontal: 16,
+  },
+  featureTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  featureDetails: {
+    marginLeft: 8,
+  },
+  featureItem: {
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  // New styles for pricing card
+  pricingContainer: {
+    marginVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#fcefee',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+    marginHorizontal: 16,
+  },
+  pricingTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  pricingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  pricingLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  pricingValue: {
+    fontSize: 16,
+    fontWeight: '400',
   },
 });
