@@ -195,7 +195,7 @@ export default function HomeScreen() {
       const storedRefresh = localStorage.getItem('refreshToken');
       const storedEmail = localStorage.getItem('email');
       const userId = localStorage.getItem('userId');
-      if (storedAccess && storedRefresh && storedEmail) {
+      if (storedAccess && storedRefresh && storedEmail && userId) {
         setAccessToken(storedAccess);
         setRefreshToken(storedRefresh);
         setEmail(storedEmail);
@@ -207,7 +207,7 @@ export default function HomeScreen() {
         const storedRefresh = await AsyncStorage.getItem('refreshToken');
         const storedEmail = await AsyncStorage.getItem('email');
         const userId = await AsyncStorage.getItem('userId');
-        if (storedAccess && storedRefresh && storedEmail) {
+        if (storedAccess && storedRefresh && storedEmail && userId) {
           setAccessToken(storedAccess);
           setRefreshToken(storedRefresh);
           setEmail(storedEmail);
@@ -482,79 +482,36 @@ export default function HomeScreen() {
         <HelloWave />
       </ThemedView>
       <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
+        <ThemedText type="subtitle">Tired of reading long slides from lectures? </ThemedText>
         <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12'
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
+          We are here to help.
         </ThemedText>
       </ThemedView>
 
       {/* Feature Cards */}
       <ThemedView style={styles.featureContainer}>
-        <ThemedText style={styles.featureTitle}>Slide Processing and Knowledge Extraction</ThemedText>
+        <ThemedText style={styles.featureTitle}>Introducing Smart Slides!</ThemedText>
         <View style={styles.featureDetails}>
           <ThemedText style={styles.featureItem}>• Extract text, visuals, tables, and key concepts</ThemedText>
           <ThemedText style={styles.featureItem}>• OCR & metadata extraction for complex visuals</ThemedText>
           <ThemedText style={styles.featureItem}>• Auto-highlight definitions, formulas, diagrams, and bullet points</ThemedText>
-        </View>
-      </ThemedView>
-
-      <ThemedView style={styles.featureContainer}>
-        <ThemedText style={styles.featureTitle}>Personalized Teaching Style</ThemedText>
-        <View style={styles.featureDetails}>
-          <ThemedText style={styles.featureItem}>• Tailored teaching methods for your learning style</ThemedText>
           <ThemedText style={styles.featureItem}>• Options for concise summaries or detailed explanations</ThemedText>
           <ThemedText style={styles.featureItem}>• External knowledge extensions available</ThemedText>
         </View>
       </ThemedView>
 
       <ThemedView style={styles.featureContainer}>
-        <ThemedText style={styles.featureTitle}>
-          Voice Explanation & Storytelling <ThemedText type="caption">(upcoming)</ThemedText>
-        </ThemedText>
-        <View style={styles.featureDetails}>
-          <ThemedText style={styles.featureItem}>• Convert slides to narrated audio</ThemedText>
-          <ThemedText style={styles.featureItem}>• Engaging storytelling techniques</ThemedText>
-        </View>
-      </ThemedView>
-
-      <ThemedView style={styles.pricingContainer}>
         <ThemedText style={styles.pricingTitle}>Pricing</ThemedText>
         <View style={styles.pricingRow}>
-          <ThemedText style={styles.pricingLabel}>Slide Annotation:</ThemedText>
-          <ThemedText style={styles.pricingValue}>1 credit</ThemedText>
+          <ThemedText style={styles.pricingLabel}>1 slide will consume 1 credit.</ThemedText>
         </View>
         <View style={styles.pricingRow}>
-          <ThemedText style={styles.pricingLabel}>Monthly Subscription:</ThemedText>
-          <ThemedText style={styles.pricingValue}>$3.99 / 1000 credits</ThemedText>
+          <ThemedText style={styles.pricingLabel}>Monthly Subscription: </ThemedText>
+          <ThemedText style={styles.pricingValue}>$4.99 / 600 credits load up every month</ThemedText>
         </View>
         <View style={styles.pricingRow}>
-          <ThemedText style={styles.pricingLabel}>Credit Purchase:</ThemedText>
-          <ThemedText style={styles.pricingValue}>1000 credits for $5.99</ThemedText>
+          <ThemedText style={styles.pricingLabel}>Onetime Credit Purchase: </ThemedText>
+          <ThemedText style={styles.pricingValue}>600 instant credits for $5.99</ThemedText>
         </View>
       </ThemedView>
 
@@ -612,7 +569,7 @@ export default function HomeScreen() {
           <ThemedView style={styles.sectionContainer}>
             <ThemedText style={styles.sectionHeader}>Upload New 🆕 Slide For Annotation</ThemedText>
             <View style={styles.buttonContainer}>
-              <Button title={fileName ? "Change File" : "Select New Slide"} onPress={handleFileUpload} />
+              <Button title={fileName ? "Change File" : "Select New Slide (.pdf format)"} onPress={handleFileUpload} />
             </View>
             <ThemedText style={styles.fileNameText}>{updateNewError}</ThemedText>
             {fileName && (
@@ -637,7 +594,7 @@ export default function HomeScreen() {
                     {uploadLoading && (
                       <>
                         <ActivityIndicator size="large" color="#0000ff" style={{ marginVertical: 10 }} />
-                        <ThemedText style={{ marginTop: 5 }}>Processing?</ThemedText>
+                        <ThemedText style={{ marginTop: 5 }}>Processing! Please bear with me.</ThemedText>
                       </>
                     )}
                   </View>
@@ -857,6 +814,9 @@ const styles = StyleSheet.create({
   },
   // New styles for feature cards
   featureContainer: {
+    width: '60%',
+    alignSelf: 'center',
+    alignItems: 'center',
     marginVertical: 16,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -880,19 +840,6 @@ const styles = StyleSheet.create({
   featureItem: {
     fontSize: 16,
     marginBottom: 4,
-  },
-  // New styles for pricing card
-  pricingContainer: {
-    marginVertical: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#fcefee',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-    marginHorizontal: 16,
   },
   pricingTitle: {
     fontSize: 18,
