@@ -484,7 +484,7 @@ export default function HomeScreen() {
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Tired of reading long slides from lectures? </ThemedText>
         <ThemedText>
-          We are here to help!
+          We are here to help!!
         </ThemedText>
       </ThemedView>
 
