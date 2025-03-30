@@ -432,8 +432,8 @@ export default function HomeScreen() {
         lineItems: [{ price: priceId, quantity: 1 }],
         mode: mode,
         clientReferenceId: userId.toString(),
-        successUrl: `${window.location.origin}`,
-        cancelUrl: window.location.origin,
+        successUrl: Global.authRedirectUrl, //`${window.location.origin}`,
+        cancelUrl: Global.authRedirectUrl, //window.location.origin,
       });
 
       if (error) {
