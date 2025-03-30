@@ -46,8 +46,8 @@ export default function HomeScreen() {
   const [email, setEmail] = useState<String | null>(null);
   const [idToken, setIdToken] = useState<String | null>(null);
   const [userId, setUserId] = useState<String | null>(null);
+
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
-  const [updateNewError, setUploadNewError] = useState<String | null>(null);
   const [uploadLoading, setUploadLoading] = useState(false);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
@@ -71,6 +71,7 @@ export default function HomeScreen() {
   const [courseName, setCourseName] = useState('');
   const [grade, setGrade] = useState('');
   const [alertVisible, setAlertVisible] = useState(false);
+  const [alertMessage, setAlertMessage] = useState<string>("");
 
   // Load tokens when the component mounts
   useEffect(() => {
@@ -265,8 +266,8 @@ export default function HomeScreen() {
           setSelectedFile(data.data.files[0]);
         } else {
           setSelectedFile(null);
-          // window.alert('No files found. Please upload a file first.');
           setAlertVisible(true);
+          setAlertMessage("No files found! Please upload a file first.");
         }
       }
     } catch (error) {
@@ -348,8 +349,9 @@ export default function HomeScreen() {
         Alert.alert('Success', 'File uploaded successfully!');
         const data = await response.json();
         console.log('upload_file response: ', data);
-        if (data.data.error) {
-          setUploadNewError(data.data.error);
+        if (data.error) {
+          setAlertVisible(true);
+          setAlertMessage(data.message);
         }
         if (data.data.files) {
           setAllFiles(data.data.files);
@@ -563,6 +565,12 @@ export default function HomeScreen() {
         </View>
       )}
 
+      <CustomAlert
+        isVisible={alertVisible}
+        onClose={() => setAlertVisible(false)}
+        message={alertMessage}
+      />
+
       {email && (
         <>
           {/* New file upload Section */}
@@ -571,7 +579,6 @@ export default function HomeScreen() {
             <View style={styles.buttonContainer}>
               <Button title={fileName ? "Change File" : "Select New Slide (.pdf format)"} onPress={handleFileUpload} />
             </View>
-            <ThemedText style={styles.fileNameText}>{updateNewError}</ThemedText>
             {fileName && (
               <>
                 <ThemedText style={styles.fileNameText}>Selected File: {fileName}</ThemedText>
@@ -609,11 +616,6 @@ export default function HomeScreen() {
             <View style={styles.buttonContainer}>
               <Button title="Load All my Historical Slides" onPress={getAllFiles} />
             </View>
-            <CustomAlert
-              isVisible={alertVisible}
-              onClose={() => setAlertVisible(false)}
-              message="No files found. Please upload a file first."
-            />
 
             {selectedFile && (
               <View style={styles.fileViewContainer}>
