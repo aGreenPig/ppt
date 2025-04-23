@@ -8,7 +8,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as DocumentPicker from 'expo-document-picker';
 import { getAuth, onAuthStateChanged, User } from "firebase/auth";
 import { loadStripe } from '@stripe/stripe-js';
-import * as Global from './global';
+import * as Global from '../lib/global';
 import Modal from 'react-native-modal';
 
 import { HelloWave } from '@/components/HelloWave';
