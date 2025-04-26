@@ -135,6 +135,8 @@ export default function HomeScreen() {
         setIdToken(params.id_token)
         verifyIdToken(params.id_token)
       }
+    } else {
+      handleSignOut();
     }
   }, [response]);
 
@@ -238,6 +240,7 @@ export default function HomeScreen() {
       }
     } catch (error) {
       console.error('Error fetching user data: ', error);
+      handleSignOut();
     }
   };
 
@@ -355,6 +358,7 @@ export default function HomeScreen() {
         }
         if (data.data.files) {
           setAllFiles(data.data.files);
+          setCurrentImageIndex(0);
           if (data.data.files.length > 0) {
             setSelectedFile(data.data.files[0]);
           }
