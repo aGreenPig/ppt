@@ -135,8 +135,6 @@ export default function HomeScreen() {
         setIdToken(params.id_token)
         verifyIdToken(params.id_token)
       }
-    } else {
-      handleSignOut();
     }
   }, [response]);
 
