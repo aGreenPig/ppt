@@ -21,6 +21,9 @@ WebBrowser.maybeCompleteAuthSession();
 const app = initializeApp(Global.firebaseConfig);
 const auth = getAuth(app);
 
+const POLL_INTERVAL_MS = 5_000;
+const MAX_POLL_TIME_MS = 1 * 60_000;
+
 interface PerImage {
   path: string;
   annotation: string;
@@ -245,7 +248,7 @@ export default function HomeScreen() {
   /////
   // file related functions
   /////
-  const getAllFiles = async () => {
+  const getAllFiles = async (file_id: string) => {
     if (!accessToken) {
       Alert.alert('Not authenticated', 'Please sign in first.');
       return;
@@ -257,7 +260,7 @@ export default function HomeScreen() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ fid: file_id }),
       });
       const data = await response.json();
       console.log('get_all_files response: ', data);
@@ -271,10 +274,28 @@ export default function HomeScreen() {
           setAlertMessage("No files found! Please upload a file first.");
         }
       }
+      return data.data.files;
     } catch (error) {
       console.error('Error fetching all files:', error);
     }
   };
+
+  // Poll /get_all_files until files appear or timeout
+  async function pollForFiles(fid: string) {
+    const start = Date.now();
+
+    while (Date.now() - start < MAX_POLL_TIME_MS) {
+      console.log('Polling for files...', fid);
+      const abc = await getAllFiles(fid);
+      if (abc.length > 0) {
+        console.log('Files found:', abc);
+        return;
+      }
+      await sleep(POLL_INTERVAL_MS);
+    }
+
+    throw new Error('Timeout waiting for files');
+  }
 
   const handleFileUpload = async () => {
     try {
@@ -332,12 +353,12 @@ export default function HomeScreen() {
     }
 
     try {
-      console.log('fileBlob:', fileBlob);
-      console.log('fileName:', fileName);
+      console.log('fileBlob:', fileBlob, '; fileName:', fileName);
 
       const formData = new FormData();
       formData.append('file', fileBlob);
       formData.append('metadata', JSON.stringify({ course_name: courseName, grade: grade }));
+      await setAllFiles([]); // Clear the list of files before uploading
       const response = await fetch(Global.backendDomain + '/upload_file', {
         method: 'POST',
         headers: {
@@ -354,6 +375,7 @@ export default function HomeScreen() {
           setAlertVisible(true);
           setAlertMessage(data.message);
         }
+        /*
         if (data.data.files) {
           setAllFiles(data.data.files);
           setCurrentImageIndex(0);
@@ -361,7 +383,9 @@ export default function HomeScreen() {
             setSelectedFile(data.data.files[0]);
           }
         }
+        */
         await getUserData();
+        await pollForFiles(data.data.fid);
       } else {
         Alert.alert('Error', 'Failed to upload file to backend.');
       }
@@ -391,7 +415,7 @@ export default function HomeScreen() {
       const data = await response.json();
       console.log("delete_file response: ", data);
       Alert.alert('Done', 'Your file has been deleted.');
-      await getAllFiles();
+      await getAllFiles("*");
     } catch (error) {
       console.error("Error delete_file:", error);
     }
@@ -423,8 +447,7 @@ export default function HomeScreen() {
   /////
   const handlePayment = async (action: string) => {
     const stripe = await loadStripe(Global.stripeKey);
-    console.log("stripe: ", stripe)
-    console.log("userId: ", userId, "userId.toString(): ", userId.toString())
+    console.log("userId: ", userId, "; userId.toString(): ", userId.toString())
     var mode: 'subscription' | 'payment' = 'subscription';
     var priceId: string = Global.subscriptionPriceId;
     if (action == 'onetime') {
@@ -441,7 +464,7 @@ export default function HomeScreen() {
       });
 
       if (error) {
-        console.log('Stripe Error:', error);
+        console.log('Stripe Error: ', error);
       }
     } else {
       console.log('Stripe is null!');
@@ -616,7 +639,7 @@ export default function HomeScreen() {
           <ThemedView style={styles.sectionContainer}>
             <ThemedText style={styles.sectionHeader}>My Slides 🕰</ThemedText>
             <View style={styles.buttonContainer}>
-              <Button title="Load All my Historical Slides" onPress={getAllFiles} />
+              <Button title="Load All my Historical Slides" onPress={() => getAllFiles("*")} />
             </View>
 
             {selectedFile && (
