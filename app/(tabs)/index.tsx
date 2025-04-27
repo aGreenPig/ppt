@@ -119,11 +119,11 @@ export default function HomeScreen() {
           AsyncStorage.removeItem('email');
           AsyncStorage.removeItem('userId');
         } catch (error) {
-          console.error('Error clearing tokens', error);
+          console.error('Error clearing tokens: ', error);
         }
       }
     }).catch((error) => {
-      console.log(error)
+      console.error(error)
     });
   };
 
@@ -144,7 +144,7 @@ export default function HomeScreen() {
   const verifyIdToken = async (idToken: string) => {
     console.log("idToken:", idToken)
     if (!idToken) {
-      // Alert.alert('Not authenticated', 'Please sign in first.');
+      console.error('No idToken provided');
       return;
     }
     try {
@@ -187,7 +187,7 @@ export default function HomeScreen() {
         await AsyncStorage.setItem('email', email);
         await AsyncStorage.setItem('userId', userId);
       } catch (error) {
-        console.error('Error saving tokens', error);
+        console.error('Error saving tokens: ', error);
       }
     }
   };
@@ -218,7 +218,7 @@ export default function HomeScreen() {
           setUserId(userId);
         }
       } catch (error) {
-        console.error('Error loading tokens', error);
+        console.error('Error loading tokens: ', error);
       }
     }
   };
@@ -250,12 +250,12 @@ export default function HomeScreen() {
   /////
   const getAllFiles = async (file_id: string) => {
     if (!accessToken) {
-      Alert.alert('Not authenticated', 'Please sign in first.');
+      console.error('No access token available');
       return;
     }
     try {
       const response = await fetch(Global.backendDomain + '/get_all_files', {
-        method: 'POST', // Adjust the method if needed.
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
@@ -268,7 +268,7 @@ export default function HomeScreen() {
         setAllFiles(data.data.files);
         if (data.data.files.length > 0) {
           setSelectedFile(data.data.files[0]);
-        } else {
+        } else if (file_id == "*") {
           setSelectedFile(null);
           setAlertVisible(true);
           setAlertMessage("No files found! Please upload a file first.");
@@ -280,21 +280,18 @@ export default function HomeScreen() {
     }
   };
 
-  // Poll /get_all_files until files appear or timeout
   async function pollForFiles(fid: string) {
     const start = Date.now();
-
     while (Date.now() - start < MAX_POLL_TIME_MS) {
       console.log('Polling for files...', fid);
-      const abc = await getAllFiles(fid);
-      if (abc.length > 0) {
-        console.log('Files found:', abc);
+      const resp = await getAllFiles(fid);
+      if (resp.length > 0) {
+        console.log('File found: ', fid, resp);
         return;
       }
       await sleep(POLL_INTERVAL_MS);
     }
-
-    throw new Error('Timeout waiting for files');
+    throw new Error('Timeout waiting for file: ' + fid);
   }
 
   const handleFileUpload = async () => {
@@ -319,12 +316,11 @@ export default function HomeScreen() {
         const result = await DocumentPicker.getDocumentAsync({
           type: [
             'application/pdf',
-            'application/vnd.ms-powerpoint',
-            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            //'application/vnd.ms-powerpoint',
+            //'application/vnd.openxmlformats-officedocument.presentationml.presentation',
           ],
           copyToCacheDirectory: true,
         });
-
         if (result.canceled) {
           Alert.alert('File upload cancelled');
         } else if (result.assets && result.assets[0]) {
@@ -340,21 +336,17 @@ export default function HomeScreen() {
       }
     } catch (error) {
       console.error('Error picking file:', error);
-      Alert.alert('Error', 'Could not upload the file. Please try again.');
     }
   };
 
   const handleUploadToBackend = async () => {
     setUploadLoading(true);
-    // await sleep(3000);
     if (!fileBlob || !fileName) {
-      Alert.alert('No file selected', 'Please upload a file first.');
+      console.error('No file selected');
       return;
     }
-
     try {
       console.log('fileBlob:', fileBlob, '; fileName:', fileName);
-
       const formData = new FormData();
       formData.append('file', fileBlob);
       formData.append('metadata', JSON.stringify({ course_name: courseName, grade: grade }));
@@ -368,30 +360,19 @@ export default function HomeScreen() {
       });
 
       if (response.ok) {
-        Alert.alert('Success', 'File uploaded successfully!');
         const data = await response.json();
         console.log('upload_file response: ', data);
         if (data.error) {
           setAlertVisible(true);
           setAlertMessage(data.message);
         }
-        /*
-        if (data.data.files) {
-          setAllFiles(data.data.files);
-          setCurrentImageIndex(0);
-          if (data.data.files.length > 0) {
-            setSelectedFile(data.data.files[0]);
-          }
-        }
-        */
-        await getUserData();
         await pollForFiles(data.data.fid);
+        await getUserData();
       } else {
-        Alert.alert('Error', 'Failed to upload file to backend.');
+        console.error('Error uploading file:', response);
       }
     } catch (error) {
       console.error('Error sending file to backend:', error);
-      Alert.alert('Error', 'An error occurred while uploading the file.');
     } finally {
       // Turn off loading state.
       setUploadLoading(false);
@@ -400,7 +381,7 @@ export default function HomeScreen() {
 
   const handleDeleteFile = async () => {
     if (!selectedFile || !selectedFile.id) {
-      Alert.alert('No file selected', 'Please select a file first.');
+      console.error('No file selected for deletion');
       return;
     }
     try {
@@ -414,7 +395,6 @@ export default function HomeScreen() {
       });
       const data = await response.json();
       console.log("delete_file response: ", data);
-      Alert.alert('Done', 'Your file has been deleted.');
       await getAllFiles("*");
     } catch (error) {
       console.error("Error delete_file:", error);
@@ -464,10 +444,10 @@ export default function HomeScreen() {
       });
 
       if (error) {
-        console.log('Stripe Error: ', error);
+        console.error('Stripe Error: ', error);
       }
     } else {
-      console.log('Stripe is null!');
+      console.error('Stripe is null!');
     }
   };
 
