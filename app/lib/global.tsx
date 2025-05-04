@@ -22,5 +22,5 @@ export const backendDomain = __DEV__ ? 'http://127.0.0.1:5000' : 'https://gb9i2r
 export const authRedirectUrl = __DEV__ ? 'http://localhost:8081' : "https://agreenpig.github.io/ppt/"
 
 export const stripeKey = __DEV__ ? 'pk_test_51HPJqWDahoKKsJZphETtLtPQRI0cOW6syAkyc1LHQHgLPCqoT8EYuF3yHJ2N28JLS8RqBr9Bg7m4KlsIDnuVnWNU004gUQkPKn' : "pk_live_51HPJqWDahoKKsJZpZkh3gEstHXISz3NkjnDSdmbFDuEz7yZEXP8XO5pIQhNWiojxaOw13U9Pta9TgCPRxS8SDgs300cNz6Bp2C"
-export const subscriptionPriceId = __DEV__ ? 'price_1R5xUzDahoKKsJZpiXtwGX96' : "price_1R5xY8DahoKKsJZpgRaUb5hq"
+export const subscriptionPriceId = __DEV__ ? 'price_1R5xUzDahoKKsJZpiXtwGX96' : "price_1RKqW3DahoKKsJZpBYsJPMPA"
 export const oneTimePriceId = __DEV__ ? 'price_1R5xVqDahoKKsJZpuazt51ry' : "price_1R5xY1DahoKKsJZpuK7YMYx9"
