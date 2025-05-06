@@ -199,24 +199,20 @@ export default function HomeScreen() {
       const storedRefresh = localStorage.getItem('refreshToken');
       const storedEmail = localStorage.getItem('email');
       const userId = localStorage.getItem('userId');
-      if (storedAccess && storedRefresh && storedEmail && userId) {
-        setAccessToken(storedAccess);
-        setRefreshToken(storedRefresh);
-        setEmail(storedEmail);
-        setUserId(userId);
-      }
+      setAccessToken(storedAccess);
+      setRefreshToken(storedRefresh);
+      setEmail(storedEmail);
+      setUserId(userId);
     } else {
       try {
         const storedAccess = await AsyncStorage.getItem('accessToken');
         const storedRefresh = await AsyncStorage.getItem('refreshToken');
         const storedEmail = await AsyncStorage.getItem('email');
         const userId = await AsyncStorage.getItem('userId');
-        if (storedAccess && storedRefresh && storedEmail && userId) {
-          setAccessToken(storedAccess);
-          setRefreshToken(storedRefresh);
-          setEmail(storedEmail);
-          setUserId(userId);
-        }
+        setAccessToken(storedAccess);
+        setRefreshToken(storedRefresh);
+        setEmail(storedEmail);
+        setUserId(userId);
       } catch (error) {
         console.error('Error loading tokens: ', error);
       }
@@ -238,6 +234,9 @@ export default function HomeScreen() {
       console.log('get_user_data response: ', data);
       if (data.data && data.data.subscription) {
         setSubscription(data.data.subscription);
+      }
+      if (data.data && data.data.id) {
+        setUserId(data.data.id);
       }
     } catch (error) {
       console.error('Error fetching user data: ', error);
@@ -426,34 +425,33 @@ export default function HomeScreen() {
   // payment related functions
   /////
   const handlePayment = async (action: string) => {
-    const stripe = await loadStripe(Global.stripeKey);
     // Validate userId early
     if (typeof userId !== 'string' || !userId.trim()) {
       console.error('Invalid userId: ', userId);
       return;
     }
     console.log("userId: ", userId, "; userId.toString(): ", userId.toString())
-    
+
+    const stripe = await loadStripe(Global.stripeKey);
     var mode: 'subscription' | 'payment' = 'subscription';
     var priceId: string = Global.subscriptionPriceId;
     if (action == 'onetime') {
       mode = 'payment';
       priceId = Global.oneTimePriceId;
     }
-    if (stripe) {
-      const { error } = await stripe.redirectToCheckout({
-        lineItems: [{ price: priceId, quantity: 1 }],
-        mode: mode,
-        clientReferenceId: userId.toString(),
-        successUrl: Global.authRedirectUrl, //`${window.location.origin}`,
-        cancelUrl: Global.authRedirectUrl, //window.location.origin,
-      });
-
-      if (error) {
-        console.error('Stripe Error: ', error);
-      }
-    } else {
-      console.error('Stripe not loaded: ', stripe);
+    if (!stripe) {
+      console.error('Stripe not loaded');
+      return;
+    }
+    const { error } = await stripe.redirectToCheckout({
+      lineItems: [{ price: priceId, quantity: 1 }],
+      mode: mode,
+      clientReferenceId: userId.toString(),
+      successUrl: Global.authRedirectUrl, //`${window.location.origin}`,
+      cancelUrl: Global.authRedirectUrl, //window.location.origin,
+    });
+    if (error) {
+      console.error('Stripe Error: ', error);
     }
   };
 
