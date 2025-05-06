@@ -447,7 +447,7 @@ export default function HomeScreen() {
         console.error('Stripe Error: ', error);
       }
     } else {
-      console.error('Stripe is null!');
+      console.error('Stripe not loaded or userId not available', stripe, " ", userId);
     }
   };
 
