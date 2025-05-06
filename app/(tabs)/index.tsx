@@ -427,14 +427,20 @@ export default function HomeScreen() {
   /////
   const handlePayment = async (action: string) => {
     const stripe = await loadStripe(Global.stripeKey);
+    // Validate userId early
+    if (typeof userId !== 'string' || !userId.trim()) {
+      console.error('Invalid userId: ', userId);
+      return;
+    }
     console.log("userId: ", userId, "; userId.toString(): ", userId.toString())
+    
     var mode: 'subscription' | 'payment' = 'subscription';
     var priceId: string = Global.subscriptionPriceId;
     if (action == 'onetime') {
       mode = 'payment';
       priceId = Global.oneTimePriceId;
     }
-    if (stripe && userId) {
+    if (stripe) {
       const { error } = await stripe.redirectToCheckout({
         lineItems: [{ price: priceId, quantity: 1 }],
         mode: mode,
@@ -447,7 +453,7 @@ export default function HomeScreen() {
         console.error('Stripe Error: ', error);
       }
     } else {
-      console.error('Stripe not loaded or userId not available', stripe, " ", userId);
+      console.error('Stripe not loaded: ', stripe);
     }
   };
 
