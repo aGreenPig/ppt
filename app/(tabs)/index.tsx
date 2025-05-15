@@ -551,12 +551,16 @@ export default function HomeScreen() {
                       <ThemedText style={styles.summaryText}>
                         Your subscription is canceled and will expire on {new Date(subscription.until * 1000).toLocaleDateString()}.
                       </ThemedText>
-                      <Button title="Reactivate Subscription" onPress={() => handleModifySubscription("REACTIVATE")} />
+                      <View style={styles.buttonContainer}>
+                        <Button title="Reactivate Subscription" onPress={() => handleModifySubscription("REACTIVATE")} />
+                      </View>
                     </ThemedView>
                   ) : (
                     <ThemedView>
                       <ThemedText style={styles.summaryText}>You do not have an active subscription.</ThemedText>
-                      <Button title="New Subscription" onPress={() => handlePayment("subscription")} />
+                      <View style={styles.buttonContainer}>
+                        <Button title="New Subscription" onPress={() => handlePayment("subscription")} />
+                      </View>
                     </ThemedView>
                   )}
                 </>
