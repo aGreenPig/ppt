@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ActivityIndicator, Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions, TouchableOpacity, TextInput, Text } from 'react-native';
+import { ActivityIndicator, Button, Image, StyleSheet, Platform, Alert, View, ScrollView, Dimensions, TouchableOpacity, TextInput, Text, KeyboardAvoidingView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,6 +10,7 @@ import { getAuth, onAuthStateChanged, User } from "firebase/auth";
 import { loadStripe } from '@stripe/stripe-js';
 import * as Global from '../lib/global';
 import Modal from 'react-native-modal';
+import { MaterialIcons } from '@expo/vector-icons';
 
 import { HelloWave } from '@/components/HelloWave';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
@@ -40,6 +41,24 @@ interface SubscriptionInfo {
   id: number;
   until: number | null;
   credit_balance: number | null;
+}
+
+interface CustomAlertProps {
+  isVisible: boolean;
+  onClose: () => void;
+  message: string;
+}
+
+interface Message {
+  id: string;
+  content: string;
+  isUser: boolean;
+  timestamp: number;
+}
+
+interface Conversation {
+  slideId: string;
+  messages: Message[];
 }
 
 export default function HomeScreen() {
@@ -76,6 +95,10 @@ export default function HomeScreen() {
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string>("");
 
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [currentMessage, setCurrentMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+
   // Load tokens when the component mounts
   useEffect(() => {
     loadTokens();
@@ -93,6 +116,14 @@ export default function HomeScreen() {
       getUserData();
     }
   }, [accessToken]);
+
+  // Add this after other useEffect hooks
+  useEffect(() => {
+    if (selectedFile && selectedFile.per_image && selectedFile.per_image[currentImageIndex]) {
+      const slideId = String(currentImageIndex);
+      loadConversation(selectedFile.id, slideId);
+    }
+  }, [selectedFile, currentImageIndex]);
 
   /////
   // authentication related functions
@@ -412,7 +443,7 @@ export default function HomeScreen() {
     }
   };
 
-  const CustomAlert = ({ isVisible, onClose, message }) => (
+  const CustomAlert = ({ isVisible, onClose, message }: CustomAlertProps) => (
     <Modal isVisible={isVisible}>
       <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 10 }}>
         <Text>{message}</Text>
@@ -479,6 +510,128 @@ export default function HomeScreen() {
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const deviceWidth = Dimensions.get('window').width;
 
+  const loadConversation = async (fid: string, slideId: string) => {
+    try {
+      const response = await fetch(Global.backendDomain + '/get_conversation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ 
+          fid: fid,
+          slide_id: slideId,
+        }),
+      });
+      const data = await response.json();
+      console.log("get_conversation response: ", data);
+      if (data.data && data.data.messages) {
+        setConversations(prev => {
+          const existing = prev.find(c => c.slideId === slideId);
+          if (existing) {
+            return prev.map(c => c.slideId === slideId ? { ...c, messages: data.data.messages } : c);
+          }
+          return [...prev, { slideId, messages: data.data.messages }];
+        });
+      }
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!currentMessage.trim() || !selectedFile || !selectedFile.per_image || !selectedFile.per_image[currentImageIndex]) return;
+
+    const slideId = String(currentImageIndex);
+    console.log("selectedFile: ", selectedFile);
+    console.log("conversations: ", conversations);
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      content: currentMessage,
+      isUser: true,
+      timestamp: Date.now(),
+    };
+
+    // Update local state immediately for better UX
+    setConversations(prev => {
+      const existing = prev.find(c => c.slideId === slideId);
+      if (existing) {
+        return prev.map(c => c.slideId === slideId ? { ...c, messages: [...c.messages, newMessage] } : c);
+      }
+      return [...prev, { slideId, messages: [newMessage] }];
+    });
+
+    setCurrentMessage('');
+    setIsSending(true);
+
+    try {
+      const response = await fetch(Global.backendDomain + '/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          fid: selectedFile.id,
+          slide_id: slideId,
+          message: currentMessage,
+          annotation: selectedFile.per_image[currentImageIndex].annotation,
+        }),
+      });
+
+      const data = await response.json();
+      console.log("chat response: ", data);
+      if (data.data && data.data.response) {
+        const aiResponse: Message = {
+          id: Date.now().toString(),
+          content: data.data.response,
+          isUser: false,
+          timestamp: Date.now(),
+        };
+
+        setConversations(prev => {
+          const existing = prev.find(c => c.slideId === slideId);
+          if (existing) {
+            return prev.map(c => c.slideId === slideId ? { ...c, messages: [...c.messages, aiResponse] } : c);
+          }
+          return [...prev, { slideId, messages: [newMessage, aiResponse] }];
+        });
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleDeleteConversation = async () => {
+    if (!selectedFile || !selectedFile.per_image || !selectedFile.per_image[currentImageIndex]) return;
+
+    const slideId = String(currentImageIndex);
+    try {
+      const response = await fetch(Global.backendDomain + '/delete_conversation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          fid: selectedFile.id,
+          slide_id: slideId,
+        }),
+      });
+
+      if (response.ok) {
+        setConversations(prev => prev.filter(c => c.slideId !== slideId));
+        Alert.alert('Success', 'Conversation deleted successfully');
+      }
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      Alert.alert('Error', 'Failed to delete conversation. Please try again.');
+    }
+  };
+
   return (
     <ParallaxScrollView
       headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
@@ -488,210 +641,601 @@ export default function HomeScreen() {
           style={styles.reactLogo}
         />
       }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Tired of reading long slides from lectures? </ThemedText>
-        <ThemedText>
-          We are here to help!!
-        </ThemedText>
-      </ThemedView>
+      <ThemedView style={styles.container}>
+        <ThemedView style={styles.titleContainer}>
+          <ThemedText type="title">Welcome!</ThemedText>
+          <HelloWave />
+        </ThemedView>
 
-      {/* Feature Cards */}
-      <ThemedView style={styles.featureContainer}>
-        <ThemedText style={styles.featureTitle}>Introducing Smart Slides!</ThemedText>
-        <View style={styles.featureDetails}>
-          <ThemedText style={styles.featureItem}>• Extract text, visuals, tables, and key concepts</ThemedText>
-          <ThemedText style={styles.featureItem}>• OCR & metadata extraction for complex visuals</ThemedText>
-          <ThemedText style={styles.featureItem}>• Auto-highlight definitions, formulas, diagrams, and bullet points</ThemedText>
-          <ThemedText style={styles.featureItem}>• Options for concise summaries or detailed explanations</ThemedText>
-          <ThemedText style={styles.featureItem}>• External knowledge extensions available</ThemedText>
-        </View>
-      </ThemedView>
+        {/* Hero Section */}
+        <ThemedView style={styles.heroContainer}>
+          <ThemedText type="subtitle" style={styles.heroTitle}>
+            Transform Your Slides into Smart Notes
+          </ThemedText>
+          <ThemedText style={styles.heroSubtitle}>
+            Let AI help you understand and organize your lecture slides better
+          </ThemedText>
+        </ThemedView>
 
-      <ThemedView style={styles.featureContainer}>
-        <ThemedText style={styles.pricingTitle}>Pricing</ThemedText>
-        <View style={styles.pricingRow}>
-          <ThemedText style={styles.pricingLabel}>1 slide will consume 1 credit.</ThemedText>
-        </View>
-        <View style={styles.pricingRow}>
-          <ThemedText style={styles.pricingLabel}>Monthly Subscription: </ThemedText>
-          <ThemedText style={styles.pricingValue}>$4.99 / 600 credits load up every month</ThemedText>
-        </View>
-        <View style={styles.pricingRow}>
-          <ThemedText style={styles.pricingLabel}>Onetime Credit Purchase: </ThemedText>
-          <ThemedText style={styles.pricingValue}>600 instant credits for $5.99</ThemedText>
-        </View>
-      </ThemedView>
-
-      {email ? (
-        <>
-          <ThemedView style={styles.sectionContainer}>
-            <ThemedText style={styles.sectionHeader}>Welcome, {email}!</ThemedText>
-            <View style={styles.buttonContainer}>
-              <Button title="Sign Out" onPress={handleSignOut} />
-            </View>
-          </ThemedView>
-          {subscription && (
-            <ThemedView style={styles.sectionContainer}>
-              <ThemedText style={styles.sectionHeader}>Subscription Status</ThemedText>
-              {subscription.until >= 9999999998 ? (
-                <>
-                  <ThemedText style={styles.summaryText}>Your subscription is active.</ThemedText>
-                  <View style={styles.buttonContainer}>
-                    <Button title="Cancel Subscription" onPress={() => handleModifySubscription("CANCEL")} />
-                  </View>
-                </>
-              ) : (
-                <>
-                  {subscription.until && subscription.until > Math.floor(Date.now() / 1000) ? (
-                    <ThemedView>
-                      <ThemedText style={styles.summaryText}>
-                        Your subscription is canceled and will expire on {new Date(subscription.until * 1000).toLocaleDateString()}.
-                      </ThemedText>
-                      <View style={styles.buttonContainer}>
-                        <Button title="Reactivate Subscription" onPress={() => handleModifySubscription("REACTIVATE")} />
-                      </View>
-                    </ThemedView>
-                  ) : (
-                    <ThemedView>
-                      <ThemedText style={styles.summaryText}>You do not have an active subscription.</ThemedText>
-                      <View style={styles.buttonContainer}>
-                        <Button title="New Subscription" onPress={() => handlePayment("subscription")} />
-                      </View>
-                    </ThemedView>
-                  )}
-                </>
-              )}
-              <ThemedText style={styles.summaryText}>Reminging credit: {subscription.credit_balance}</ThemedText>
-              <View style={styles.buttonContainer}>
-                <Button title="Load Up More Credit" onPress={() => handlePayment("onetime")} />
-              </View>
+        {/* Feature Cards */}
+        <ThemedView style={styles.featureContainer}>
+          <ThemedText style={styles.sectionTitle}>Smart Features</ThemedText>
+          <View style={styles.featureGrid}>
+            <ThemedView style={styles.featureCard}>
+              <MaterialIcons name="text-fields" size={32} color="#4CAF50" />
+              <ThemedText style={styles.featureTitle}>Text Extraction</ThemedText>
+              <ThemedText style={styles.featureDescription}>
+                Extract and organize text from your slides
+              </ThemedText>
             </ThemedView>
-          )}
-        </>
-      ) : (
-        <View style={styles.buttonContainer}>
-          <Button title="Sign in with Google" disabled={!request} onPress={handleSignIn} />
-        </View>
-      )}
+            <ThemedView style={styles.featureCard}>
+              <MaterialIcons name="image" size={32} color="#2196F3" />
+              <ThemedText style={styles.featureTitle}>Visual Analysis</ThemedText>
+              <ThemedText style={styles.featureDescription}>
+                Understand diagrams and images
+              </ThemedText>
+            </ThemedView>
+            <ThemedView style={styles.featureCard}>
+              <MaterialIcons name="table-chart" size={32} color="#FF9800" />
+              <ThemedText style={styles.featureTitle}>Table Processing</ThemedText>
+              <ThemedText style={styles.featureDescription}>
+                Extract and format table data
+              </ThemedText>
+            </ThemedView>
+            <ThemedView style={styles.featureCard}>
+              <MaterialIcons name="lightbulb" size={32} color="#9C27B0" />
+              <ThemedText style={styles.featureTitle}>Key Concepts</ThemedText>
+              <ThemedText style={styles.featureDescription}>
+                Highlight important points
+              </ThemedText>
+            </ThemedView>
+          </View>
+        </ThemedView>
 
-      <CustomAlert
-        isVisible={alertVisible}
-        onClose={() => setAlertVisible(false)}
-        message={alertMessage}
-      />
+        {email ? (
+          <>
+            {/* User Welcome Section */}
+            <ThemedView style={styles.sectionContainer}>
+              <View style={styles.userHeader}>
+                <MaterialIcons name="account-circle" size={24} color="#fff" />
+                <ThemedText style={styles.welcomeText}>Welcome, {email}!</ThemedText>
+                <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+                  <MaterialIcons name="logout" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
 
-      {email && (
-        <>
-          {/* New file upload Section */}
-          <ThemedView style={styles.sectionContainer}>
-            <ThemedText style={styles.sectionHeader}>Upload New 🆕 Slide For Annotation</ThemedText>
-            <View style={styles.buttonContainer}>
-              <Button title={fileName ? "Change File" : "Select New Slide (.pdf format)"} onPress={handleFileUpload} />
-            </View>
-            {fileName && (
-              <>
-                <ThemedText style={styles.fileNameText}>Selected File: {fileName}</ThemedText>
-                {/* (f) Metadata Form */}
-                <View style={styles.formContainer}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Course Name"
-                    value={courseName}
-                    onChangeText={setCourseName}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Grade"
-                    value={grade}
-                    onChangeText={setGrade}
-                  />
-                  <View style={styles.buttonContainer}>
-                    <Button title="Upload File" onPress={handleUploadToBackend} />
-                    {uploadLoading && (
+              {/* Subscription Status */}
+              {subscription && subscription.until !== null && subscription.credit_balance !== null && (
+                <ThemedView style={styles.subscriptionCard}>
+                  <View style={styles.subscriptionHeader}>
+                    <MaterialIcons name="card-membership" size={24} color="#4CAF50" />
+                    <ThemedText style={styles.subscriptionTitle}>Subscription Status</ThemedText>
+                  </View>
+                  <View style={styles.subscriptionInfo}>
+                    <ThemedText style={styles.creditText}>
+                      Remaining Credits: {subscription.credit_balance}
+                    </ThemedText>
+                    {subscription.until >= 9999999998 ? (
+                      <TouchableOpacity 
+                        style={[styles.actionButton, styles.cancelButton]} 
+                        onPress={() => handleModifySubscription("CANCEL")}
+                      >
+                        <ThemedText style={styles.buttonText}>Cancel Subscription</ThemedText>
+                      </TouchableOpacity>
+                    ) : subscription.until > Math.floor(Date.now() / 1000) ? (
                       <>
-                        <ActivityIndicator size="large" color="#0000ff" style={{ marginVertical: 10 }} />
-                        <ThemedText style={{ marginTop: 5 }}>Processing! Please bear with me.</ThemedText>
+                        <ThemedText style={styles.expiryText}>
+                          Expires: {new Date(subscription.until * 1000).toLocaleDateString()}
+                        </ThemedText>
+                        <TouchableOpacity 
+                          style={[styles.actionButton, styles.reactivateButton]} 
+                          onPress={() => handleModifySubscription("REACTIVATE")}
+                        >
+                          <ThemedText style={styles.buttonText}>Reactivate</ThemedText>
+                        </TouchableOpacity>
                       </>
+                    ) : (
+                      <TouchableOpacity 
+                        style={[styles.actionButton, styles.subscribeButton]} 
+                        onPress={() => handlePayment("subscription")}
+                      >
+                        <ThemedText style={styles.buttonText}>Get Subscription</ThemedText>
+                      </TouchableOpacity>
                     )}
                   </View>
+                </ThemedView>
+              )}
+
+              {/* File Upload Section */}
+              <ThemedView style={styles.uploadSection}>
+                <View style={styles.sectionHeader}>
+                  <MaterialIcons name="cloud-upload" size={24} color="#2196F3" />
+                  <ThemedText style={styles.sectionTitle}>Upload New Slides</ThemedText>
                 </View>
-              </>
-            )}
-          </ThemedView>
+                <TouchableOpacity 
+                  style={styles.uploadButton} 
+                  onPress={handleFileUpload}
+                >
+                  <MaterialIcons name="add" size={24} color="#fff" />
+                  <ThemedText style={styles.uploadButtonText}>
+                    {fileName ? "Change File" : "Select PDF File"}
+                  </ThemedText>
+                </TouchableOpacity>
 
-          {/* Current Files Section */}
-          <ThemedView style={styles.sectionContainer}>
-            <ThemedText style={styles.sectionHeader}>My Slides 🕰</ThemedText>
-            <View style={styles.buttonContainer}>
-              <Button title="Load All my Historical Slides" onPress={() => getAllFiles("*")} />
-            </View>
-
-            {selectedFile && (
-              <View style={styles.fileViewContainer}>
-                {allFiles.length > 0 && (
-                  <>
-                    <View style={styles.inlineContainer}>
-                      <ThemedText style={styles.sectionSubHeader}>Select a File</ThemedText>
-                      <Picker
-                        selectedValue={selectedFile.id}
-                        onValueChange={(itemValue) => {
-                          const file = allFiles.find((f) => f.id === itemValue);
-                          setSelectedFile(file || null);
-                          setCurrentImageIndex(0);
-                        }}
-                        style={styles.picker}
-                      >
-                        {allFiles.map((file) => (
-                          <Picker.Item key={file.id} label={`File ${file.name}`} value={file.id} />
-                        ))}
-                      </Picker>
-                    </View>
-                    <View style={styles.buttonContainer}>
-                      <Button title="Delete Selected File Permanently" onPress={handleDeleteFile} color="#ff4444" />
-                    </View>
-                  </>
-                )}
-                {/* (e) Display Summary */}
-                <ThemedText style={styles.summaryText}>Summary: {selectedFile.summary}</ThemedText>
-                {selectedFile.per_image && selectedFile.per_image.length > 0 && (
-                  <View style={styles.imageContainer}>
-                    <Image
-                      source={{ uri: selectedFile.per_image[currentImageIndex].path }}
-                      style={[styles.image, { width: deviceWidth * 0.95, height: 500 }]}
-                      resizeMode="contain"
+                {fileName && (
+                  <ThemedView style={styles.uploadForm}>
+                    <ThemedText style={styles.fileNameText}>Selected: {fileName}</ThemedText>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Course Name"
+                      value={courseName}
+                      onChangeText={setCourseName}
                     />
-                    <ThemedText style={styles.captionText}>
-                      {selectedFile.per_image[currentImageIndex].annotation}
-                    </ThemedText>
-                    {/* (d) Navigation Buttons for per_image */}
-                    <View style={styles.navigationContainer}>
-                      <TouchableOpacity onPress={goToPreviousImage} style={styles.navButton}>
-                        <ThemedText style={styles.navButtonText}>Previous</ThemedText>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={goToNextImage} style={styles.navButton}>
-                        <ThemedText style={styles.navButtonText}>Next</ThemedText>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Grade"
+                      value={grade}
+                      onChangeText={setGrade}
+                    />
+                    <TouchableOpacity 
+                      style={[styles.actionButton, styles.uploadButton]} 
+                      onPress={handleUploadToBackend}
+                    >
+                      <ThemedText style={styles.buttonText}>Process Slides</ThemedText>
+                    </TouchableOpacity>
+                    {uploadLoading && (
+                      <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#2196F3" />
+                        <ThemedText style={styles.loadingText}>
+                          Processing your slides...
+                        </ThemedText>
+                      </View>
+                    )}
+                  </ThemedView>
                 )}
-              </View>
-            )}
-          </ThemedView>
-        </>
-      )}
+              </ThemedView>
 
+              {/* My Slides Section */}
+              <ThemedView style={styles.slidesSection}>
+                <View style={styles.sectionHeader}>
+                  <MaterialIcons name="collections" size={24} color="#FF9800" />
+                  <ThemedText style={styles.sectionTitle}>My Slides</ThemedText>
+                </View>
+                <TouchableOpacity 
+                  style={styles.loadButton} 
+                  onPress={() => getAllFiles("*")}
+                >
+                  <MaterialIcons name="refresh" size={24} color="#fff" />
+                  <ThemedText style={styles.buttonText}>Load All Slides</ThemedText>
+                </TouchableOpacity>
+
+                {selectedFile && (
+                  <ThemedView style={styles.fileViewContainer}>
+                    {allFiles.length > 0 && (
+                      <View style={styles.fileSelector}>
+                        <ThemedText style={styles.selectorLabel}>Select a File:</ThemedText>
+                        <Picker
+                          selectedValue={selectedFile.id}
+                          onValueChange={(itemValue) => {
+                            const file = allFiles.find((f) => f.id === itemValue);
+                            setSelectedFile(file || null);
+                            setCurrentImageIndex(0);
+                          }}
+                          style={styles.picker}
+                        >
+                          {allFiles.map((file) => (
+                            <Picker.Item key={file.id} label={file.name} value={file.id} />
+                          ))}
+                        </Picker>
+                        <TouchableOpacity 
+                          style={[styles.actionButton, styles.deleteButton]} 
+                          onPress={handleDeleteFile}
+                        >
+                          <MaterialIcons name="delete" size={24} color="#fff" />
+                          <ThemedText style={styles.buttonText}>Delete File</ThemedText>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    <ThemedText style={styles.summaryText}>
+                      Summary: {selectedFile.summary}
+                    </ThemedText>
+
+                    {selectedFile.per_image && selectedFile.per_image.length > 0 && (
+                      <View style={styles.imageContainer}>
+                        <Image
+                          source={{ uri: selectedFile.per_image[currentImageIndex].path }}
+                          style={[styles.image, { width: deviceWidth * 0.95, height: 500 }]}
+                          resizeMode="contain"
+                        />
+                        <ThemedText style={styles.captionText}>
+                          {selectedFile.per_image[currentImageIndex].annotation}
+                        </ThemedText>
+                        <View style={styles.navigationContainer}>
+                          <TouchableOpacity 
+                            style={[styles.navButton, currentImageIndex === 0 && styles.disabledButton]} 
+                            onPress={goToPreviousImage}
+                            disabled={currentImageIndex === 0}
+                          >
+                            <MaterialIcons name="chevron-left" size={24} color="#fff" />
+                            <ThemedText style={styles.navButtonText}>Previous</ThemedText>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={[
+                              styles.navButton, 
+                              currentImageIndex === selectedFile.per_image.length - 1 && styles.disabledButton
+                            ]} 
+                            onPress={goToNextImage}
+                            disabled={currentImageIndex === selectedFile.per_image.length - 1}
+                          >
+                            <ThemedText style={styles.navButtonText}>Next</ThemedText>
+                            <MaterialIcons name="chevron-right" size={24} color="#fff" />
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Chat Interface */}
+                        <ThemedView style={styles.chatContainer}>
+                          <View style={styles.chatHeader}>
+                            <ThemedText style={styles.chatTitle}>Ask about this slide</ThemedText>
+                            <TouchableOpacity 
+                              style={styles.deleteChatButton} 
+                              onPress={handleDeleteConversation}
+                            >
+                              <MaterialIcons name="delete" size={20} color="#F44336" />
+                              <ThemedText style={styles.deleteChatText}>Clear Chat</ThemedText>
+                            </TouchableOpacity>
+                          </View>
+
+                          <ScrollView 
+                            style={styles.messagesContainer}
+                            contentContainerStyle={styles.messagesContent}
+                          >
+                            {conversations.find(c => c.slideId === String(currentImageIndex))?.messages.map((message) => (
+                              <View 
+                                key={message.id} 
+                                style={[
+                                  styles.messageBubble,
+                                  message.isUser ? styles.userMessage : styles.aiMessage
+                                ]}
+                              >
+                                <ThemedText style={styles.messageText}>{message.content}</ThemedText>
+                                <ThemedText style={styles.messageTime}>
+                                  {new Date(message.timestamp).toLocaleTimeString()}
+                                </ThemedText>
+                              </View>
+                            ))}
+                          </ScrollView>
+
+                          <KeyboardAvoidingView
+                            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                            style={styles.inputContainer}
+                          >
+                            <TextInput
+                              style={styles.messageInput}
+                              value={currentMessage}
+                              onChangeText={setCurrentMessage}
+                              placeholder="Ask a question about this slide..."
+                              multiline
+                              maxLength={200}
+                            />
+                            <ThemedText>
+                              {currentMessage.length}/200
+                            </ThemedText>
+                            <TouchableOpacity 
+                              style={[styles.sendButton, (!currentMessage.trim() || isSending) && styles.disabledButton]} 
+                              onPress={handleSendMessage}
+                              disabled={!currentMessage.trim() || isSending}
+                            >
+                              {isSending ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : (
+                                <MaterialIcons name="send" size={24} color="#fff" />
+                              )}
+                            </TouchableOpacity>
+                          </KeyboardAvoidingView>
+                        </ThemedView>
+                      </View>
+                    )}
+                  </ThemedView>
+                )}
+              </ThemedView>
+            </ThemedView>
+          </>
+        ) : (
+          <ThemedView style={styles.authContainer}>
+            <MaterialIcons name="login" size={24} color="#fff" />
+            <ThemedText style={styles.authTitle}>Get Started</ThemedText>
+            <ThemedText style={styles.authSubtitle}>
+              Sign in to start transforming your slides
+            </ThemedText>
+            <TouchableOpacity 
+              style={styles.signInButton} 
+              disabled={!request} 
+              onPress={handleSignIn}
+            >
+              <MaterialIcons name="account-circle" size={24} color="#fff" />
+              <ThemedText style={styles.buttonText}>Sign in with Google</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+        )}
+
+        <CustomAlert
+          isVisible={alertVisible}
+          onClose={() => setAlertVisible(false)}
+          message={alertMessage}
+        />
+      </ThemedView>
     </ParallaxScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  stepContainer: {
+  container: {
+    flex: 1,
+    padding: 16,
+  },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    marginBottom: 24,
+  },
+  heroContainer: {
+    marginBottom: 32,
+    padding: 24,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 16,
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
     marginBottom: 8,
+    color: '#1565C0',
+  },
+  heroSubtitle: {
+    fontSize: 16,
+    color: '#424242',
+  },
+  featureContainer: {
+    marginBottom: 32,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  featureGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+  },
+  featureCard: {
+    flex: 1,
+    minWidth: '45%',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    alignItems: 'center',
+  },
+  featureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  featureDescription: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  sectionContainer: {
+    marginBottom: 32,
+  },
+  userHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  welcomeText: {
+    fontSize: 18,
+    marginLeft: 8,
+    flex: 1,
+  },
+  signOutButton: {
+    padding: 8,
+  },
+  subscriptionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  subscriptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  subscriptionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  subscriptionInfo: {
+    gap: 8,
+  },
+  creditText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  expiryText: {
+    fontSize: 14,
+    color: '#FF9800',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  subscribeButton: {
+    backgroundColor: '#4CAF50',
+  },
+  cancelButton: {
+    backgroundColor: '#F44336',
+  },
+  reactivateButton: {
+    backgroundColor: '#2196F3',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  uploadSection: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  uploadButton: {
+    backgroundColor: '#2196F3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+  uploadButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  uploadForm: {
+    marginTop: 16,
+    gap: 12,
+  },
+  input: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  loadingText: {
+    marginTop: 8,
+    color: '#666',
+  },
+  slidesSection: {
+    marginBottom: 24,
+  },
+  loadButton: {
+    backgroundColor: '#FF9800',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+  fileSelector: {
+    marginBottom: 16,
+  },
+  selectorLabel: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  picker: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  deleteButton: {
+    backgroundColor: '#F44336',
+  },
+  fileViewContainer: {
+    gap: 16,
+  },
+  summaryText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#424242',
+  },
+  imageContainer: {
+    gap: 16,
+  },
+  image: {
+    borderRadius: 8,
+  },
+  captionText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  navigationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  navButton: {
+    flex: 1,
+    backgroundColor: '#2196F3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  disabledButton: {
+    backgroundColor: '#BDBDBD',
+  },
+  navButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  authContainer: {
+    alignItems: 'center',
+    padding: 32,
+    gap: 16,
+  },
+  authTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  authSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  signInButton: {
+    backgroundColor: '#2196F3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    gap: 8,
   },
   reactLogo: {
     height: 178,
@@ -700,179 +1244,96 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
   },
-  uploadTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    marginVertical: 8,
-    fontWeight: '600',
-  },
-  carousel: {
-    marginTop: 16,
-    height: 300,
-  },
-  carouselItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  carouselImage: {
-    width: '100%',
-    height: 250,
-    borderRadius: 8,
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    margin: 16,
-  },
-  authenticatedContainer: {
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  // (b) Button container style to limit width
-  buttonContainer: {
-    marginVertical: 6,
-    alignSelf: 'center',
-    width: '25%',
-  },
-  sectionContainer: {
-    marginVertical: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#f0f4f7',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-    marginHorizontal: 16,
-  },
-  sectionHeader: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  sectionSubHeader: {
-    fontSize: 18,
-    fontWeight: '500',
-    marginVertical: 8,
-    textAlign: 'center',
-  },
   fileNameText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginVertical: 8,
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
   },
-  formContainer: {
-    marginTop: 12,
-  },
-  input: {
-    height: 40,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    marginVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 4,
-  },
-  fileViewContainer: {
+  chatContainer: {
     marginTop: 16,
-  },
-  summaryText: {
-    fontSize: 16,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  imageContainer: {
-    alignItems: 'center',
-  },
-  image: {
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  captionText: {
-    fontSize: 16,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  navigationContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '80%',
-    marginVertical: 10,
-  },
-  navButton: {
-    backgroundColor: '#4a90e2',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 4,
-  },
-  navButtonText: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  picker: {
-    marginHorizontal: 10,
-    alignItems: 'center',
-    width: '50%',
-    height: 30,
-  },
-  inlineContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  // New styles for feature cards
-  featureContainer: {
-    width: '60%',
-    alignSelf: 'center',
-    alignItems: 'center',
-    marginVertical: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#e8f0fe',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 2,
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-    marginHorizontal: 16,
+    shadowRadius: 4,
   },
-  featureTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  featureDetails: {
-    marginLeft: 8,
-  },
-  featureItem: {
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  pricingTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  pricingRow: {
+  chatHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
-  pricingLabel: {
+  chatTitle: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
   },
-  pricingValue: {
-    fontSize: 16,
-    fontWeight: '400',
+  deleteChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  deleteChatText: {
+    color: '#F44336',
+    fontSize: 14,
+  },
+  messagesContainer: {
+    maxHeight: 300,
+  },
+  messagesContent: {
+    padding: 12,
+    gap: 8,
+  },
+  messageBubble: {
+    maxWidth: '80%',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  userMessage: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#E3F2FD',
+  },
+  aiMessage: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F5F5F5',
+  },
+  messageText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  messageTime: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+    alignSelf: 'flex-end',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    alignItems: 'flex-end',
+  },
+  messageInput: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    maxHeight: 100,
+    marginRight: 8,
+  },
+  sendButton: {
+    backgroundColor: '#2196F3',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
